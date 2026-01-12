@@ -1,25 +1,29 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { ScreenName, NavContextType } from './types';
+import { getContactId, getSessionId, clearContactSession } from './src/lib/storage';
+import { supabase } from './src/lib/supabase';
 import { 
     SplashScreen, 
     LoginScreen, 
+    LoginEmailScreen,
     VerificationScreen,
+    VerificationEmailScreen,
     WelcomeBackScreen,
     NewCustomerScreen,
     DeliverySetupScreen
-} from './screens/AuthScreens';
+} from './src/screens/AuthScreens';
 import { 
     HomeScreen, 
     MenuScreen, 
     CategoryDetailScreen,
     AccountScreen 
-} from './screens/HomeScreens';
+} from './src/screens/HomeScreens';
 import { 
     ItemDetailScreen, 
     CartScreen, 
     CheckoutScreen, 
     OrderSuccessScreen 
-} from './screens/OrderScreens';
+} from './src/screens/OrderScreens';
 import { 
     OrdersScreen, 
     ReorderScreen, 
@@ -29,11 +33,52 @@ import {
     ScheduledOrdersScreen,
     LoyaltyScreen,
     AddressManagementScreen
-} from './screens/ManagementScreens';
+} from './src/screens/ManagementScreens';
+import { DebugScreen } from './src/screens/DebugScreens';
 
 const App: React.FC = () => {
   const [currentScreen, setCurrentScreen] = useState<ScreenName>('splash');
   const [history, setHistory] = useState<ScreenName[]>(['splash']);
+  const [data, setData] = useState<any>({});
+
+  // Initialize contact ID from localStorage on mount
+  useEffect(() => {
+    const initializeContactSession = async () => {
+      try {
+        const storedContactId = getContactId();
+        const storedSessionId = getSessionId();
+
+        if (storedContactId && storedSessionId) {
+          // Verify current Supabase session matches stored session ID
+          const { data: { session } } = await supabase.auth.getSession();
+          const currentSessionId = session?.user?.id || session?.access_token || null;
+
+          if (currentSessionId === storedSessionId) {
+            // Session matches - restore contact ID to nav.data
+            setData((prevData: any) => ({
+              ...prevData,
+              contactId: storedContactId,
+            }));
+          } else {
+            // Session mismatch - clear localStorage (session expired/changed)
+            console.log('Session mismatch detected, clearing stored contact session');
+            clearContactSession();
+          }
+        } else if (storedContactId && !storedSessionId) {
+          // Contact ID exists but no session ID - still restore contact ID
+          // (might be from before session linking was implemented)
+          setData((prevData: any) => ({
+            ...prevData,
+            contactId: storedContactId,
+          }));
+        }
+      } catch (error) {
+        console.error('Failed to initialize contact session from localStorage:', error);
+      }
+    };
+
+    initializeContactSession();
+  }, []);
 
   const navigate = (screen: ScreenName) => {
     setHistory((prev) => [...prev, screen]);
@@ -53,6 +98,8 @@ const App: React.FC = () => {
     currentScreen,
     navigate,
     goBack,
+    data,
+    setData,
   };
 
   const renderScreen = () => {
@@ -60,7 +107,9 @@ const App: React.FC = () => {
       // Phase 0
       case 'splash': return <SplashScreen nav={nav} />;
       case 'login': return <LoginScreen nav={nav} />;
+      case 'login_email': return <LoginEmailScreen nav={nav} />;
       case 'verify': return <VerificationScreen nav={nav} />;
+      case 'verify_email': return <VerificationEmailScreen nav={nav} />;
       case 'welcome_back': return <WelcomeBackScreen nav={nav} />;
       case 'new_customer': return <NewCustomerScreen nav={nav} />;
       case 'delivery_setup': return <DeliverySetupScreen nav={nav} />;
@@ -86,6 +135,7 @@ const App: React.FC = () => {
       case 'loyalty': return <LoyaltyScreen nav={nav} />;
       case 'scheduled': return <ScheduledOrdersScreen nav={nav} />;
       case 'addresses': return <AddressManagementScreen nav={nav} />;
+      case 'debug': return <DebugScreen nav={nav} />;
       
       default: return <HomeScreen nav={nav} />;
     }

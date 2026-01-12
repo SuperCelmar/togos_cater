@@ -1,6 +1,45 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { NavContextType } from '../../types';
 import { supabase } from '../lib/supabase';
+import { ghlService } from '../services/ghl';
+import { getRecommendation, formatPrice } from '../lib/cateringRecommendations';
+import { saveContactSession } from '../lib/storage';
+
+/**
+ * Extract firstName and lastName from email address
+ * Attempts to parse common patterns: john.doe@example.com, jane_smith@example.com, etc.
+ */
+function extractNameFromEmail(email: string): { firstName: string; lastName: string } {
+  if (!email || !email.includes('@')) {
+    return { firstName: '', lastName: '' };
+  }
+
+  const localPart = email.split('@')[0];
+  
+  // Try common separators: ., _, -
+  const separators = ['.', '_', '-'];
+  for (const sep of separators) {
+    if (localPart.includes(sep)) {
+      const parts = localPart.split(sep);
+      if (parts.length >= 2) {
+        const firstName = parts[0].trim();
+        const lastName = parts.slice(1).join(sep).trim(); // Join remaining parts in case of multiple separators
+        if (firstName && lastName) {
+          return { 
+            firstName: firstName.charAt(0).toUpperCase() + firstName.slice(1).toLowerCase(),
+            lastName: lastName.charAt(0).toUpperCase() + lastName.slice(1).toLowerCase()
+          };
+        }
+      }
+    }
+  }
+
+  // Fallback: use entire local part as firstName if no separator found
+  return { 
+    firstName: localPart.trim() || '', 
+    lastName: '' 
+  };
+}
 
 export const SplashScreen: React.FC<{ nav: NavContextType }> = ({ nav }) => {
   useEffect(() => {
@@ -89,7 +128,7 @@ export const LoginScreen: React.FC<{ nav: NavContextType }> = ({ nav }) => {
   };
 
   return (
-    <div className="bg-background-light dark:bg-background-dark font-display antialiased text-slate-900 dark:text-white h-screen overflow-hidden flex flex-col items-center justify-center relative">
+    <div className="bg-background-light dark:bg-background-dark font-display antialiased text-slate-900 dark:text-white h-screen overflow-hidden flex flex-col items-center justify-center relative w-full">
       <div className="w-full h-full max-w-md mx-auto bg-white dark:bg-[#1a0c0c] relative flex flex-col shadow-2xl overflow-hidden">
         <div className="flex-1 flex flex-col px-6 pt-12 pb-4 overflow-y-auto no-scrollbar">
           <div className="w-full flex justify-center mb-8 shrink-0">
@@ -130,18 +169,24 @@ export const LoginScreen: React.FC<{ nav: NavContextType }> = ({ nav }) => {
               {!isLoading && <span className="material-symbols-outlined group-hover:translate-x-1 transition-transform">arrow_forward</span>}
             </button>
           </div>
-          <div className="mt-auto pt-6 text-center pb-4">
+          <div className="mt-auto pt-6 text-center pb-8 shrink-0 relative z-20">
             <p className="text-slate-500 dark:text-slate-400 text-sm mb-4">Don't have an account? <span className="text-primary font-semibold">That's fine, we'll create one.</span></p>
-            <div className="flex flex-col gap-2">
+            <div className="flex flex-col gap-3">
               <button 
-                onClick={() => nav.navigate('login_email')} 
-                className="text-sm text-primary font-semibold hover:underline"
+                type="button"
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  nav.navigate('login_email');
+                }} 
+                className="text-sm text-primary font-bold hover:underline py-2 block w-full cursor-pointer relative z-30"
               >
                 Use Email instead
               </button>
               <button 
+                type="button"
                 onClick={() => nav.navigate('debug')} 
-                className="mt-2 text-xs text-slate-300 dark:text-slate-700 hover:text-slate-500 transition-colors"
+                className="mt-2 text-xs text-slate-300 dark:text-slate-700 hover:text-slate-500 transition-colors py-1 block w-full"
               >
                 Dev: Connection Tester
               </button>
@@ -182,7 +227,7 @@ export const LoginEmailScreen: React.FC<{ nav: NavContextType }> = ({ nav }) => 
   };
 
   return (
-    <div className="bg-background-light dark:bg-background-dark font-display antialiased text-slate-900 dark:text-white h-screen overflow-hidden flex flex-col items-center justify-center relative">
+    <div className="bg-background-light dark:bg-background-dark font-display antialiased text-slate-900 dark:text-white h-screen overflow-hidden flex flex-col items-center justify-center relative w-full">
       <div className="w-full h-full max-w-md mx-auto bg-white dark:bg-[#1a0c0c] relative flex flex-col shadow-2xl overflow-hidden">
         <div className="flex-1 flex flex-col px-6 pt-12 pb-4 overflow-y-auto no-scrollbar">
           <div className="w-full flex justify-center mb-8 shrink-0">
@@ -220,18 +265,24 @@ export const LoginEmailScreen: React.FC<{ nav: NavContextType }> = ({ nav }) => 
               {!isLoading && <span className="material-symbols-outlined group-hover:translate-x-1 transition-transform">arrow_forward</span>}
             </button>
           </div>
-          <div className="mt-auto pt-6 text-center pb-4">
+          <div className="mt-auto pt-6 text-center pb-8 shrink-0 relative z-20">
             <p className="text-slate-500 dark:text-slate-400 text-sm mb-4">Don't have an account? <span className="text-primary font-semibold">That's fine, we'll create one.</span></p>
-            <div className="flex flex-col gap-2">
+            <div className="flex flex-col gap-3">
               <button 
-                onClick={() => nav.navigate('login')} 
-                className="text-sm text-primary font-semibold hover:underline"
+                type="button"
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  nav.navigate('login');
+                }} 
+                className="text-sm text-primary font-bold hover:underline py-2 block w-full cursor-pointer relative z-30"
               >
                 Use Phone instead
               </button>
               <button 
+                type="button"
                 onClick={() => nav.navigate('debug')} 
-                className="mt-2 text-xs text-slate-300 dark:text-slate-700 hover:text-slate-500 transition-colors"
+                className="mt-2 text-xs text-slate-300 dark:text-slate-700 hover:text-slate-500 transition-colors py-1 block w-full"
               >
                 Dev: Connection Tester
               </button>
@@ -306,20 +357,51 @@ export const VerificationScreen: React.FC<{ nav: NavContextType }> = ({ nav }) =
 
       if (error) throw error;
 
+      // Get Supabase session for linking
+      const { data: { session } } = await supabase.auth.getSession();
+      const sessionId = session?.user?.id || session?.access_token || null;
+
       // Check GHL for contact existence
       try {
         const result = await ghlService.searchContact(phone);
         // Assuming result contains a 'contacts' array or similar based on GHL API structure.
         // If contacts found -> existing user
         if (result.contacts && result.contacts.length > 0) {
-            nav.navigate('welcome_back');
+            const contact = result.contacts[0];
+            const contactId = contact.id;
+            
+            // Save contact ID and session ID to localStorage
+            saveContactSession(contactId, sessionId || undefined);
+            nav.setData({ ...nav.data, contactId, contact });
+            
+            // Check if contact has past orders before navigating
+            try {
+              const orders = await ghlService.getOrdersByContactId(contactId);
+              if (orders && orders.length > 0) {
+                // Contact has past orders -> navigate to welcome_back
+                nav.navigate('welcome_back');
+              } else {
+                // Contact exists but has no orders -> navigate to new_customer flow
+                nav.navigate('new_customer');
+              }
+            } catch (orderError) {
+              // If order check fails, default to new_customer flow
+              console.error('Failed to check orders for contact:', orderError);
+              nav.navigate('new_customer');
+            }
         } else {
+            // No contact found - save session ID if available
+            if (sessionId) {
+              saveContactSession('', sessionId);
+            }
             nav.navigate('new_customer');
         }
       } catch (ghlError) {
         console.error('GHL Check failed', ghlError);
-        // Fallback or treat as new user? Or maybe existing if we can't check?
-        // Safe bet: New user flow might re-capture info, but let's assume new user if GHL fails to find
+        // Save session even if GHL check fails
+        if (sessionId) {
+          saveContactSession('', sessionId);
+        }
         nav.navigate('new_customer');
       }
 
@@ -440,16 +522,82 @@ export const VerificationEmailScreen: React.FC<{ nav: NavContextType }> = ({ nav
 
       if (error) throw error;
 
+      // Get Supabase session for linking
+      const { data: { session } } = await supabase.auth.getSession();
+      const sessionId = session?.user?.id || session?.access_token || null;
+
       // Check GHL for contact existence
       try {
         const result = await ghlService.searchContact(email);
+        let contactId: string | null = null;
+        let contact: any = null;
+
         if (result.contacts && result.contacts.length > 0) {
-            nav.navigate('welcome_back');
+          // Contact found - use existing
+          contact = result.contacts[0];
+          contactId = contact.id;
         } else {
+          // Contact not found - create new contact
+          try {
+            const nameParts = extractNameFromEmail(email);
+            const createResult = await ghlService.createContact({
+              firstName: nameParts.firstName,
+              lastName: nameParts.lastName,
+              email: email,
+              phone: '', // Empty phone for email-only contacts
+            });
+
+            if (createResult.contact && createResult.contact.id) {
+              contactId = createResult.contact.id;
+              contact = createResult.contact;
+            } else {
+              console.error('Contact creation succeeded but no contact ID returned');
+            }
+          } catch (createError) {
+            console.error('Failed to create contact in GHL:', createError);
+            // Continue to new_customer flow even if creation fails
+          }
+        }
+
+        // Save contact ID and session ID to localStorage if we have a contact
+        if (contactId) {
+          saveContactSession(contactId, sessionId || undefined);
+          nav.setData({ ...nav.data, contactId, contact });
+          
+          // Navigate based on whether contact was found or created
+          if (result.contacts && result.contacts.length > 0) {
+            // Contact was found (not newly created) - check for past orders
+            try {
+              const orders = await ghlService.getOrdersByContactId(contactId);
+              if (orders && orders.length > 0) {
+                // Contact has past orders -> navigate to welcome_back
+                nav.navigate('welcome_back');
+              } else {
+                // Contact exists but has no orders -> navigate to new_customer flow
+                nav.navigate('new_customer');
+              }
+            } catch (orderError) {
+              // If order check fails, default to new_customer flow
+              console.error('Failed to check orders for contact:', orderError);
+              nav.navigate('new_customer');
+            }
+          } else {
+            // Contact was newly created - navigate to new_customer (skip order check)
             nav.navigate('new_customer');
+          }
+        } else {
+          // No contact ID available - still save session if we have it
+          if (sessionId) {
+            saveContactSession('', sessionId);
+          }
+          nav.navigate('new_customer');
         }
       } catch (ghlError) {
         console.error('GHL Check failed', ghlError);
+        // Save session even if GHL check fails
+        if (sessionId) {
+          saveContactSession('', sessionId);
+        }
         nav.navigate('new_customer');
       }
 
@@ -513,29 +661,119 @@ export const VerificationEmailScreen: React.FC<{ nav: NavContextType }> = ({ nav
 };
 
 export const WelcomeBackScreen: React.FC<{ nav: NavContextType }> = ({ nav }) => {
+  const [lastOrder, setLastOrder] = useState<any>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  
+  const contact = nav.data?.contact;
+  const contactId = nav.data?.contactId;
+  
+  // Get display name from contact
+  const displayName = contact?.companyName 
+    || contact?.name 
+    || (contact?.firstName && contact?.lastName ? `${contact.firstName} ${contact.lastName}` : null)
+    || contact?.firstName 
+    || 'there';
+
+  useEffect(() => {
+    async function fetchLastOrder() {
+      if (!contactId) {
+        setIsLoading(false);
+        return;
+      }
+
+      try {
+        const orders = await ghlService.getOrdersByContactId(contactId);
+        if (orders && orders.length > 0) {
+          setLastOrder(orders[0]);
+          // Store orders in nav.data for reorder functionality
+          nav.setData({
+            ...nav.data,
+            orders,
+            selectedOrder: orders[0],
+          });
+        }
+      } catch (error) {
+        console.error('Failed to fetch orders:', error);
+      } finally {
+        setIsLoading(false);
+      }
+    }
+
+    fetchLastOrder();
+  }, [contactId]);
+
+  // Format last order date
+  const formatOrderDate = (dateString: string) => {
+    try {
+      const date = new Date(dateString);
+      return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    } catch {
+      return '';
+    }
+  };
+
+  // Get order summary text
+  const getOrderSummary = () => {
+    if (!lastOrder) return 'No previous orders';
+    if (lastOrder.items && lastOrder.items.length > 0) {
+      return lastOrder.items.map((i: any) => `${i.quantity}x ${i.name}`).join(' + ');
+    }
+    return 'Catering Order';
+  };
+
+  // Format price
+  const formatOrderPrice = (amount: number) => {
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: 'USD',
+    }).format(amount || 0);
+  };
+
   return (
     <div className="relative flex flex-col h-screen w-full bg-white dark:bg-[#1a0c0c] overflow-hidden font-display">
       <div className="flex-1 flex flex-col px-6 pt-12 items-center text-center">
-        <h1 className="text-3xl font-extrabold text-[#181111] dark:text-white mb-8">Welcome back,<br/><span className="text-primary">Acme Corp!</span></h1>
+        <h1 className="text-3xl font-extrabold text-[#181111] dark:text-white mb-8">
+          Welcome back,<br/><span className="text-primary">{displayName}!</span>
+        </h1>
         
-        <div className="w-full bg-gray-50 dark:bg-[#2a1a1a] rounded-2xl p-5 shadow-sm border border-gray-100 dark:border-white/5 mb-8 text-left">
-           <h3 className="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">Last Order • Dec 10</h3>
-           <div className="flex gap-4 items-center">
-              <div className="w-16 h-16 rounded-lg bg-gray-200 dark:bg-gray-700 bg-cover bg-center shrink-0" style={{backgroundImage: 'url("https://lh3.googleusercontent.com/aida-public/AB6AXuCyE1C2iCMLSaZoG9Cnr4qx7scj4YiYjmuJgZ1IrW2s5WIUxP_0v6Zf2ju7nZli_ZYkAjxn2zHEq5hrMJddnXRU193ADfWi6o7v1_JY6KChZhOp85QUdn9ie5S5si4dcAYNxLzDGmE3sIvHh_t24jSeN7LAOf0U9iYG4TnLvBXyJscMegBI7MHcIQQOgqz7vuy92EuYlFVV82SEz2Q2vzXAceNWc4TciQCeAQBDuw3eg7k2qeG8YnK_jLjanejgL7uYxvi0xdl8wmg")'}}></div>
-              <div>
-                 <p className="font-bold text-lg text-[#181111] dark:text-white leading-tight">50 Sandwich Platter + 20 Drinks</p>
-                 <p className="text-primary font-bold mt-1">$450.00</p>
-              </div>
-           </div>
-        </div>
+        {isLoading ? (
+          <div className="w-full bg-gray-50 dark:bg-[#2a1a1a] rounded-2xl p-5 shadow-sm border border-gray-100 dark:border-white/5 mb-8 flex items-center justify-center">
+            <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
+          </div>
+        ) : lastOrder ? (
+          <div className="w-full bg-gray-50 dark:bg-[#2a1a1a] rounded-2xl p-5 shadow-sm border border-gray-100 dark:border-white/5 mb-8 text-left">
+             <h3 className="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">
+               Last Order • {formatOrderDate(lastOrder.createdAt)}
+             </h3>
+             <div className="flex gap-4 items-center">
+                <div className="w-16 h-16 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+                  <span className="material-symbols-outlined text-primary text-3xl">restaurant</span>
+                </div>
+                <div>
+                   <p className="font-bold text-lg text-[#181111] dark:text-white leading-tight line-clamp-2">{getOrderSummary()}</p>
+                   <p className="text-primary font-bold mt-1">{formatOrderPrice(lastOrder.totalAmount)}</p>
+                </div>
+             </div>
+          </div>
+        ) : (
+          <div className="w-full bg-gray-50 dark:bg-[#2a1a1a] rounded-2xl p-5 shadow-sm border border-gray-100 dark:border-white/5 mb-8 text-center">
+            <p className="text-gray-500">Ready to place your first order?</p>
+          </div>
+        )}
 
         <div className="w-full space-y-3 mt-auto mb-8">
-            <button onClick={() => nav.navigate('modify_reorder')} className="w-full h-14 bg-primary text-white rounded-xl font-bold text-lg shadow-lg shadow-primary/20 hover:bg-primary-hover active:scale-[0.98] transition-all flex items-center justify-center gap-2">
-                <span className="material-symbols-outlined">replay</span>
-                Reorder This Now
-            </button>
-            <button onClick={() => nav.navigate('home')} className="w-full h-14 bg-white dark:bg-transparent border-2 border-gray-200 dark:border-gray-700 text-[#181111] dark:text-white rounded-xl font-bold text-lg hover:bg-gray-50 dark:hover:bg-white/5 active:scale-[0.98] transition-all">
-                Browse Full Menu
+            {lastOrder && (
+              <button onClick={() => nav.navigate('modify_reorder')} className="w-full h-14 bg-primary text-white rounded-xl font-bold text-lg shadow-lg shadow-primary/20 hover:bg-primary-hover active:scale-[0.98] transition-all flex items-center justify-center gap-2">
+                  <span className="material-symbols-outlined">replay</span>
+                  Reorder This Now
+              </button>
+            )}
+            <button onClick={() => nav.navigate('home')} className={`w-full h-14 rounded-xl font-bold text-lg active:scale-[0.98] transition-all ${
+              lastOrder 
+                ? 'bg-white dark:bg-transparent border-2 border-gray-200 dark:border-gray-700 text-[#181111] dark:text-white hover:bg-gray-50 dark:hover:bg-white/5'
+                : 'bg-primary text-white shadow-lg shadow-primary/20 hover:bg-primary-hover'
+            }`}>
+                {lastOrder ? 'Browse Full Menu' : 'Start Ordering'}
             </button>
         </div>
       </div>
@@ -543,7 +781,80 @@ export const WelcomeBackScreen: React.FC<{ nav: NavContextType }> = ({ nav }) =>
   );
 };
 
+// Dynamic recommendation box component
+const RecommendationBox: React.FC<{ guestCount: number }> = ({ guestCount }) => {
+  const recommendation = getRecommendation(guestCount);
+  
+  const mainItemsSummary = recommendation.mainItems
+    .map(item => `${item.quantity} ${item.name}`)
+    .join(', ');
+  
+  const drinksSummary = recommendation.drinks
+    .map(item => `${item.quantity} ${item.name}`)
+    .join(', ');
+
+  return (
+    <div className="space-y-4">
+      <div className="flex gap-3 items-start p-4 rounded-xl bg-orange-50 dark:bg-orange-900/10 border border-orange-100 dark:border-orange-900/20">
+        <span className="material-symbols-outlined text-primary mt-0.5">tips_and_updates</span>
+        <div className="flex-1">
+          <p className="font-bold text-sm text-[#181111] dark:text-white mb-2">Our Recommendation</p>
+          <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
+            For {guestCount} people, we suggest:
+          </p>
+          <ul className="text-sm text-gray-700 dark:text-gray-300 space-y-1">
+            {recommendation.mainItems.map((item, idx) => (
+              <li key={idx} className="flex justify-between">
+                <span>{item.quantity}x {item.name}</span>
+                <span className="text-gray-500">{formatPrice(item.totalPrice)}</span>
+              </li>
+            ))}
+            {recommendation.drinks.map((item, idx) => (
+              <li key={`drink-${idx}`} className="flex justify-between">
+                <span>{item.quantity}x {item.name}</span>
+                <span className="text-gray-500">{formatPrice(item.totalPrice)}</span>
+              </li>
+            ))}
+            {recommendation.sides.map((item, idx) => (
+              <li key={`side-${idx}`} className="flex justify-between">
+                <span>{item.quantity}x {item.name}</span>
+                <span className="text-gray-500">{formatPrice(item.totalPrice)}</span>
+              </li>
+            ))}
+          </ul>
+          <div className="mt-3 pt-3 border-t border-orange-200 dark:border-orange-800/30 flex justify-between items-center">
+            <span className="text-xs text-gray-500">Estimated total</span>
+            <span className="font-bold text-primary">{formatPrice(recommendation.subtotal)}</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 export const NewCustomerScreen: React.FC<{ nav: NavContextType }> = ({ nav }) => {
+  const [guestCount, setGuestCount] = useState(20);
+  const [isEditing, setIsEditing] = useState(false);
+
+  const MIN_GUESTS = 10;
+  const MAX_GUESTS = 500;
+  const STEP = 5;
+
+  const increment = () => setGuestCount(prev => Math.min(prev + STEP, MAX_GUESTS));
+  const decrement = () => setGuestCount(prev => Math.max(prev - STEP, MIN_GUESTS));
+
+  const handleDirectInput = (value: string) => {
+    const num = parseInt(value, 10);
+    if (!isNaN(num)) {
+      setGuestCount(Math.min(Math.max(num, MIN_GUESTS), MAX_GUESTS));
+    }
+  };
+
+  const handleProceed = () => {
+    nav.setData({ ...nav.data, guestCount });
+    nav.navigate('delivery_setup');
+  };
+
   return (
     <div className="relative flex flex-col h-screen w-full bg-white dark:bg-[#1a0c0c] overflow-hidden font-display">
       <div className="w-full h-64 bg-cover bg-center relative" style={{backgroundImage: 'url("https://lh3.googleusercontent.com/aida-public/AB6AXuCVUfzu5A_5qtIWFCJ1BbSQFKtgwjv9VTjyMoJv-Jcb-ih6a_9CKgn4PAXoGtO75BRbE_D7Dgzg1nZdqZFk0irFahjC4LGUnvMxtr7YrZNFF0F8Fl5SxQiAcBvMnlFRMezskYmFLgYtsi1a8rsOoj0z1DxlVS3WWTGK2w7bDHi7KUNE18eAlXR5bBxvf6CvxQ5M1V982aC2nIGaLJuPfGo7QXwbelShfccxf_fvHKnlmvBcbZtZJpXWbg-Rfqv5rGZDJXNhUhcSmYY")'}}>
@@ -553,26 +864,42 @@ export const NewCustomerScreen: React.FC<{ nav: NavContextType }> = ({ nav }) =>
          <h1 className="text-2xl font-extrabold text-[#181111] dark:text-white mb-6">How many people are we catering for?</h1>
          
          <div className="flex items-center justify-between bg-gray-50 dark:bg-[#2a1a1a] p-4 rounded-xl mb-6">
-            <button className="w-12 h-12 rounded-full bg-white dark:bg-[#3a2a2a] shadow-sm flex items-center justify-center text-primary text-2xl font-bold hover:scale-105 transition-transform">-</button>
+            <button 
+              onClick={decrement}
+              disabled={guestCount <= MIN_GUESTS}
+              className="w-12 h-12 rounded-full bg-white dark:bg-[#3a2a2a] shadow-sm flex items-center justify-center text-primary text-2xl font-bold hover:scale-105 transition-transform disabled:opacity-40 disabled:hover:scale-100"
+            >-</button>
             <div className="text-center">
-                <span className="text-4xl font-black text-[#181111] dark:text-white">20</span>
+                {isEditing ? (
+                  <input
+                    type="number"
+                    value={guestCount}
+                    onChange={(e) => handleDirectInput(e.target.value)}
+                    onBlur={() => setIsEditing(false)}
+                    autoFocus
+                    min={MIN_GUESTS}
+                    max={MAX_GUESTS}
+                    className="w-24 text-4xl font-black text-[#181111] dark:text-white bg-transparent text-center border-b-2 border-primary outline-none"
+                  />
+                ) : (
+                  <span 
+                    onClick={() => setIsEditing(true)}
+                    className="text-4xl font-black text-[#181111] dark:text-white cursor-pointer hover:text-primary transition-colors"
+                  >{guestCount}</span>
+                )}
                 <p className="text-sm text-gray-500">People</p>
             </div>
-            <button className="w-12 h-12 rounded-full bg-primary shadow-lg shadow-primary/30 flex items-center justify-center text-white text-2xl font-bold hover:scale-105 transition-transform">+</button>
+            <button 
+              onClick={increment}
+              disabled={guestCount >= MAX_GUESTS}
+              className="w-12 h-12 rounded-full bg-primary shadow-lg shadow-primary/30 flex items-center justify-center text-white text-2xl font-bold hover:scale-105 transition-transform disabled:opacity-40 disabled:hover:scale-100"
+            >+</button>
          </div>
 
-         <div className="space-y-4">
-            <div className="flex gap-3 items-start p-3 rounded-lg bg-orange-50 dark:bg-orange-900/10 border border-orange-100 dark:border-orange-900/20">
-                <span className="material-symbols-outlined text-primary">tips_and_updates</span>
-                <div>
-                    <p className="font-bold text-sm text-[#181111] dark:text-white">Our Recommendation</p>
-                    <p className="text-sm text-gray-600 dark:text-gray-400">For 20 people, we suggest 4 Sandwich Platters and 2 Gallons of Drinks.</p>
-                </div>
-            </div>
-         </div>
+         <RecommendationBox guestCount={guestCount} />
 
          <div className="mt-auto mb-8">
-            <button onClick={() => nav.navigate('delivery_setup')} className="w-full h-14 bg-primary text-white rounded-xl font-bold text-lg shadow-lg shadow-primary/20 hover:bg-primary-hover active:scale-[0.98] transition-all">
+            <button onClick={handleProceed} className="w-full h-14 bg-primary text-white rounded-xl font-bold text-lg shadow-lg shadow-primary/20 hover:bg-primary-hover active:scale-[0.98] transition-all">
                 Let's build your order
             </button>
          </div>
@@ -582,43 +909,158 @@ export const NewCustomerScreen: React.FC<{ nav: NavContextType }> = ({ nav }) =>
 };
 
 export const DeliverySetupScreen: React.FC<{ nav: NavContextType }> = ({ nav }) => {
+  const guestCount = nav.data?.guestCount || 20;
+  
+  // Controlled form state - initialize from nav.data if returning to this screen
+  const [address, setAddress] = useState(nav.data?.deliveryDetails?.address || '');
+  const [city, setCity] = useState(nav.data?.deliveryDetails?.city || '');
+  const [state, setState] = useState(nav.data?.deliveryDetails?.state || '');
+  const [zip, setZip] = useState(nav.data?.deliveryDetails?.zip || '');
+  const [date, setDate] = useState(nav.data?.deliveryDetails?.date || '');
+  const [time, setTime] = useState(nav.data?.deliveryDetails?.time || '11:30');
+  const [specialInstructions, setSpecialInstructions] = useState(nav.data?.deliveryDetails?.specialInstructions || '');
+  const [error, setError] = useState('');
+
+  const handleContinue = () => {
+    // Validate required fields
+    if (!address.trim()) {
+      setError('Please enter a delivery address');
+      return;
+    }
+    if (!city.trim()) {
+      setError('Please enter a city');
+      return;
+    }
+    if (!state.trim()) {
+      setError('Please enter a state');
+      return;
+    }
+    if (!zip.trim()) {
+      setError('Please enter a ZIP code');
+      return;
+    }
+
+    // Validate date is selected
+    if (!date) {
+      setError('Please select a delivery date');
+      return;
+    }
+
+    // Clear any previous error
+    setError('');
+
+    // Save delivery details to nav.data
+    nav.setData({
+      ...nav.data,
+      deliveryDetails: {
+        address: address.trim(),
+        city: city.trim(),
+        state: state.trim(),
+        zip: zip.trim(),
+        date,
+        time,
+        specialInstructions: specialInstructions.trim()
+      }
+    });
+
+    nav.navigate('menu');
+  };
+  
   return (
     <div className="relative flex flex-col h-screen w-full bg-white dark:bg-[#1a0c0c] overflow-hidden font-display">
        <div className="flex items-center p-4">
             <button onClick={() => nav.goBack()} className="flex items-center justify-center w-10 h-10 rounded-full hover:bg-gray-100 dark:hover:bg-white/10 text-[#181111] dark:text-white">
                 <span className="material-symbols-outlined">arrow_back</span>
             </button>
-            <div className="flex-1 text-center pr-10">
+            <div className="flex-1 text-center">
                 <p className="font-bold text-lg">Delivery Details</p>
+                <p className="text-xs text-primary font-medium">Catering for {guestCount} people</p>
             </div>
        </div>
-       <div className="flex-1 px-6 pt-4 flex flex-col gap-6">
+       <div className="flex-1 px-6 pt-4 flex flex-col gap-5 overflow-y-auto no-scrollbar">
             <div>
-                <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">Where should we deliver?</label>
+                <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">Street Address</label>
                 <div className="relative">
                     <span className="absolute left-4 top-3.5 material-symbols-outlined text-gray-400">location_on</span>
-                    <input className="w-full h-14 pl-12 pr-4 bg-gray-50 dark:bg-[#2a1a1a] border border-gray-200 dark:border-gray-700 rounded-xl text-base text-[#181111] dark:text-white focus:ring-primary focus:border-primary" placeholder="Enter address" />
+                    <input 
+                      className="w-full h-14 pl-12 pr-4 bg-gray-50 dark:bg-[#2a1a1a] border border-gray-200 dark:border-gray-700 rounded-xl text-base text-[#181111] dark:text-white focus:ring-primary focus:border-primary" 
+                      placeholder="123 Main St"
+                      value={address}
+                      onChange={(e) => setAddress(e.target.value)}
+                    />
+                </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+                <div>
+                    <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">City</label>
+                    <input 
+                      className="w-full h-14 px-4 bg-gray-50 dark:bg-[#2a1a1a] border border-gray-200 dark:border-gray-700 rounded-xl text-base text-[#181111] dark:text-white focus:ring-primary focus:border-primary" 
+                      placeholder="City"
+                      value={city}
+                      onChange={(e) => setCity(e.target.value)}
+                    />
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                    <div>
+                        <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">State</label>
+                        <input 
+                          className="w-full h-14 px-4 bg-gray-50 dark:bg-[#2a1a1a] border border-gray-200 dark:border-gray-700 rounded-xl text-base text-[#181111] dark:text-white focus:ring-primary focus:border-primary" 
+                          placeholder="ST"
+                          maxLength={2}
+                          value={state}
+                          onChange={(e) => setState(e.target.value.toUpperCase())}
+                        />
+                    </div>
+                    <div>
+                        <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">ZIP</label>
+                        <input 
+                          className="w-full h-14 px-4 bg-gray-50 dark:bg-[#2a1a1a] border border-gray-200 dark:border-gray-700 rounded-xl text-base text-[#181111] dark:text-white focus:ring-primary focus:border-primary" 
+                          placeholder="ZIP"
+                          value={zip}
+                          onChange={(e) => setZip(e.target.value)}
+                        />
+                    </div>
                 </div>
             </div>
 
             <div className="grid grid-cols-2 gap-4">
                 <div>
                     <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">Date</label>
-                    <input type="date" className="w-full h-14 px-4 bg-gray-50 dark:bg-[#2a1a1a] border border-gray-200 dark:border-gray-700 rounded-xl text-base text-[#181111] dark:text-white focus:ring-primary focus:border-primary" />
+                    <input 
+                      type="date" 
+                      className="w-full h-14 px-4 bg-gray-50 dark:bg-[#2a1a1a] border border-gray-200 dark:border-gray-700 rounded-xl text-base text-[#181111] dark:text-white focus:ring-primary focus:border-primary"
+                      value={date}
+                      onChange={(e) => setDate(e.target.value)}
+                    />
                 </div>
                 <div>
                     <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">Time</label>
-                    <input type="time" defaultValue="11:30" className="w-full h-14 px-4 bg-gray-50 dark:bg-[#2a1a1a] border border-gray-200 dark:border-gray-700 rounded-xl text-base text-[#181111] dark:text-white focus:ring-primary focus:border-primary" />
+                    <input 
+                      type="time" 
+                      className="w-full h-14 px-4 bg-gray-50 dark:bg-[#2a1a1a] border border-gray-200 dark:border-gray-700 rounded-xl text-base text-[#181111] dark:text-white focus:ring-primary focus:border-primary"
+                      value={time}
+                      onChange={(e) => setTime(e.target.value)}
+                    />
                 </div>
             </div>
 
             <div>
                  <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">Special Instructions (Optional)</label>
-                 <textarea className="w-full h-32 p-4 bg-gray-50 dark:bg-[#2a1a1a] border border-gray-200 dark:border-gray-700 rounded-xl text-base text-[#181111] dark:text-white focus:ring-primary focus:border-primary resize-none" placeholder="Gate code, parking info, etc."></textarea>
+                 <textarea 
+                   className="w-full h-24 p-4 bg-gray-50 dark:bg-[#2a1a1a] border border-gray-200 dark:border-gray-700 rounded-xl text-base text-[#181111] dark:text-white focus:ring-primary focus:border-primary resize-none" 
+                   placeholder="Gate code, parking info, etc."
+                   value={specialInstructions}
+                   onChange={(e) => setSpecialInstructions(e.target.value)}
+                 ></textarea>
             </div>
 
+            {error && (
+              <p className="text-red-500 text-sm font-medium -mt-2">{error}</p>
+            )}
+
             <div className="mt-auto mb-8">
-                <button onClick={() => nav.navigate('menu')} className="w-full h-14 bg-primary text-white rounded-xl font-bold text-lg shadow-lg shadow-primary/20 hover:bg-primary-hover active:scale-[0.98] transition-all">
+                <button onClick={handleContinue} className="w-full h-14 bg-primary text-white rounded-xl font-bold text-lg shadow-lg shadow-primary/20 hover:bg-primary-hover active:scale-[0.98] transition-all">
                     Continue to Menu
                 </button>
             </div>

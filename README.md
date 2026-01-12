@@ -18,3 +18,17 @@ View your app in AI Studio: https://ai.studio/apps/drive/1vq2XUh9YlUYiHL6T4EI6qw
 2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
 3. Run the app:
    `npm run dev`
+
+## Deployment
+
+### Vercel
+
+1. **Environment Variables**: Add `GEMINI_API_KEY` to your Vercel project settings.
+2. **Build Settings**: The app is configured with `vercel.json`. Vercel will automatically use:
+   - **Build Command**: `npm run build`
+   - **Output Directory**: `dist`
+   - **Framework Preset**: Vite
+3. **Deploy**: Push to your repository or use the Vercel CLI:
+   ```bash
+   vercel
+   ```
