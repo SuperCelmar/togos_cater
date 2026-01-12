@@ -1,14 +1,20 @@
 import React, { useState } from 'react';
-import { NavContextType, CartItem } from '../../types';
+import { useNavigate, useLocation } from 'react-router';
+import { useAppContext, SelectedItem } from '../context/AppContext';
+import { CartItem } from '../../types';
 import { ghlService } from '../services/ghl';
 import { formatPrice, getServesText, calculateRecommendedQuantity } from '../lib/menuService';
 
 // Default placeholder image
 const PLACEHOLDER_IMAGE = 'https://lh3.googleusercontent.com/aida-public/AB6AXuCVUfzu5A_5qtIWFCJ1BbSQFKtgwjv9VTjyMoJv-Jcb-ih6a_9CKgn4PAXoGtO75BRbE_D7Dgzg1nZdqZFk0irFahjC4LGUnvMxtr7YrZNFF0F8Fl5SxQiAcBvMnlFRMezskYmFLgYtsi1a8rsOoj0z1DxlVS3WWTGK2w7bDHi7KUNE18eAlXR5bBxvf6CvxQ5M1V982aC2nIGaLJuPfGo7QXwbelShfccxf_fvHKnlmvBcbZtZJpXWbg-Rfqv5rGZDJXNhUhcSmYY';
 
-export const ItemDetailScreen: React.FC<{ nav: NavContextType }> = ({ nav }) => {
-  const selectedItem = nav.data?.selectedItem;
-  const guestCount = nav.data?.guestCount;
+export const ItemDetailScreen: React.FC = () => {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const { guestCount, addToCart } = useAppContext();
+  
+  // Get selected item from route state
+  const selectedItem = (location.state as { selectedItem?: SelectedItem })?.selectedItem;
   
   // Calculate recommended quantity based on guest count
   const recommendedQty = guestCount && selectedItem?.serves_min
@@ -28,35 +34,17 @@ export const ItemDetailScreen: React.FC<{ nav: NavContextType }> = ({ nav }) => 
   const totalPrice = itemPrice * quantity;
 
   const handleAddToCart = () => {
-    const cartItems: CartItem[] = nav.data?.cartItems || [];
-    
-    // Check if item already exists in cart
-    const existingIndex = cartItems.findIndex(item => item.id === selectedItem?.id);
-    
-    if (existingIndex >= 0) {
-      // Update quantity
-      cartItems[existingIndex].quantity += quantity;
-      if (specialInstructions) {
-        cartItems[existingIndex].specialInstructions = specialInstructions;
-      }
-    } else {
-      // Add new item
-      cartItems.push({
-        id: selectedItem?.id || '',
-        name: itemName,
-        price: itemPrice,
-        quantity,
-        image_url: itemImage,
-        specialInstructions: specialInstructions || undefined,
-      });
-    }
+    const cartItem: CartItem = {
+      id: selectedItem?.id || '',
+      name: itemName,
+      price: itemPrice,
+      quantity,
+      image_url: itemImage,
+      specialInstructions: specialInstructions || undefined,
+    };
 
-    nav.setData({
-      ...nav.data,
-      cartItems,
-    });
-
-    nav.navigate('cart');
+    addToCart(cartItem);
+    navigate('/cart');
   };
 
   const incrementQuantity = () => setQuantity(q => q + 1);
@@ -65,7 +53,7 @@ export const ItemDetailScreen: React.FC<{ nav: NavContextType }> = ({ nav }) => 
   return (
     <div className="relative flex h-screen w-full flex-col bg-white dark:bg-background-dark group/design-root overflow-hidden max-w-md mx-auto shadow-xl">
         <div className="sticky top-0 z-50 flex items-center bg-white/90 dark:bg-background-dark/90 backdrop-blur-md p-4 pb-2 justify-between shrink-0">
-            <div onClick={() => nav.goBack()} className="text-[#181111] dark:text-white flex size-12 shrink-0 items-center cursor-pointer">
+            <div onClick={() => navigate(-1)} className="text-[#181111] dark:text-white flex size-12 shrink-0 items-center cursor-pointer">
                 <span className="material-symbols-outlined">arrow_back_ios</span>
             </div>
             <div className="flex w-12 items-center justify-end">
@@ -138,11 +126,16 @@ export const ItemDetailScreen: React.FC<{ nav: NavContextType }> = ({ nav }) => 
   );
 };
 
-export const CartScreen: React.FC<{ nav: NavContextType }> = ({ nav }) => {
-    const guestCount = nav.data?.guestCount;
-    const deliveryDetails = nav.data?.deliveryDetails;
-    const cartItems: CartItem[] = nav.data?.cartItems || [];
-    const cashbackBalance = nav.data?.cashbackBalance || 0;
+export const CartScreen: React.FC = () => {
+    const navigate = useNavigate();
+    const { 
+      guestCount, 
+      deliveryDetails, 
+      cartItems, 
+      cashbackBalance,
+      updateCartItemQuantity,
+      removeFromCart 
+    } = useAppContext();
     
     const [applyCashback, setApplyCashback] = useState(cashbackBalance > 0);
 
@@ -158,33 +151,17 @@ export const CartScreen: React.FC<{ nav: NavContextType }> = ({ nav }) => {
     const cashbackDiscount = applyCashback ? Math.min(cashbackBalance, subtotal) : 0;
     const total = subtotal + tax + deliveryFee - cashbackDiscount;
 
-    const updateItemQuantity = (itemId: string, delta: number) => {
-        const updatedItems = cartItems.map(item => {
-            if (item.id === itemId) {
-                const newQty = Math.max(0, item.quantity + delta);
-                return { ...item, quantity: newQty };
-            }
-            return item;
-        }).filter(item => item.quantity > 0);
-
-        nav.setData({
-            ...nav.data,
-            cartItems: updatedItems,
-        });
-    };
-
-    const removeItem = (itemId: string) => {
-        const updatedItems = cartItems.filter(item => item.id !== itemId);
-        nav.setData({
-            ...nav.data,
-            cartItems: updatedItems,
-        });
+    const handleUpdateQuantity = (itemId: string, delta: number) => {
+        const item = cartItems.find(i => i.id === itemId);
+        if (item) {
+            updateCartItemQuantity(itemId, item.quantity + delta);
+        }
     };
     
     return (
         <div className="relative flex h-screen w-full max-w-md mx-auto flex-col bg-background-light dark:bg-background-dark overflow-hidden shadow-2xl">
             <header className="sticky top-0 z-50 flex items-center bg-white dark:bg-[#2d1a1a] p-4 pb-2 justify-between border-b border-gray-100 dark:border-white/10 shrink-0">
-                <div onClick={() => nav.goBack()} className="text-[#181111] dark:text-white flex size-12 shrink-0 items-center cursor-pointer">
+                <div onClick={() => navigate(-1)} className="text-[#181111] dark:text-white flex size-12 shrink-0 items-center cursor-pointer">
                     <span className="material-symbols-outlined">arrow_back_ios</span>
                 </div>
                 <div className="flex-1 text-center pr-12">
@@ -201,7 +178,7 @@ export const CartScreen: React.FC<{ nav: NavContextType }> = ({ nav }) => {
                         <span className="material-symbols-outlined text-6xl text-gray-300 mb-4">shopping_cart</span>
                         <p className="text-gray-500">Your cart is empty</p>
                         <button 
-                            onClick={() => nav.navigate('menu')}
+                            onClick={() => navigate('/menu')}
                             className="mt-4 px-6 py-2 bg-primary text-white rounded-lg font-bold"
                         >
                             Browse Menu
@@ -215,19 +192,19 @@ export const CartScreen: React.FC<{ nav: NavContextType }> = ({ nav }) => {
                                     <div className="flex justify-between items-start">
                                         <p className="text-[#181111] dark:text-white text-base font-bold leading-normal">{item.name}</p>
                                         <span 
-                                            onClick={() => removeItem(item.id)}
+                                            onClick={() => removeFromCart(item.id)}
                                             className="material-symbols-outlined text-gray-400 text-sm cursor-pointer hover:text-red-500"
                                         >delete</span>
                                     </div>
                                     <div className="flex justify-between items-center">
                                         <div className="flex items-center gap-3 bg-gray-100 dark:bg-white/10 rounded-lg px-2 py-1">
                                             <span 
-                                                onClick={() => updateItemQuantity(item.id, -1)}
+                                                onClick={() => handleUpdateQuantity(item.id, -1)}
                                                 className="material-symbols-outlined text-sm cursor-pointer"
                                             >remove</span>
                                             <span className="text-sm font-bold">{item.quantity}</span>
                                             <span 
-                                                onClick={() => updateItemQuantity(item.id, 1)}
+                                                onClick={() => handleUpdateQuantity(item.id, 1)}
                                                 className="material-symbols-outlined text-sm cursor-pointer"
                                             >add</span>
                                         </div>
@@ -243,7 +220,7 @@ export const CartScreen: React.FC<{ nav: NavContextType }> = ({ nav }) => {
                         <div className="px-4 pt-6">
                             <div className="flex justify-between items-center mb-2">
                                 <h2 className="text-[#181111] dark:text-white text-lg font-bold">Delivery Details</h2>
-                                <button onClick={() => nav.navigate('delivery_setup')} className="text-primary text-sm font-bold">Edit</button>
+                                <button onClick={() => navigate('/delivery-setup')} className="text-primary text-sm font-bold">Edit</button>
                             </div>
                             <div className="bg-white dark:bg-[#2d1a1a] rounded-xl p-4 shadow-sm">
                                 <p className="font-bold text-[#181111] dark:text-white">{fullAddress}</p>
@@ -303,10 +280,10 @@ export const CartScreen: React.FC<{ nav: NavContextType }> = ({ nav }) => {
             </div>
             {cartItems.length > 0 && (
                 <div className="fixed bottom-0 left-0 right-0 max-w-md mx-auto bg-white dark:bg-[#2d1a1a] p-4 border-t border-gray-100 dark:border-white/10 flex flex-col gap-3">
-                    <button onClick={() => nav.navigate('checkout')} className="w-full bg-primary text-white py-4 rounded-xl font-bold text-lg shadow-lg active:scale-[0.98] transition-transform">
+                    <button onClick={() => navigate('/checkout')} className="w-full bg-primary text-white py-4 rounded-xl font-bold text-lg shadow-lg active:scale-[0.98] transition-transform">
                         Continue to Payment
                     </button>
-                    <button onClick={() => nav.navigate('menu')} className="w-full bg-transparent text-[#181111] dark:text-white py-2 rounded-xl font-medium text-sm">
+                    <button onClick={() => navigate('/menu')} className="w-full bg-transparent text-[#181111] dark:text-white py-2 rounded-xl font-medium text-sm">
                         Continue Shopping
                     </button>
                 </div>
@@ -315,12 +292,19 @@ export const CartScreen: React.FC<{ nav: NavContextType }> = ({ nav }) => {
     );
 };
 
-export const CheckoutScreen: React.FC<{ nav: NavContextType }> = ({ nav }) => {
+export const CheckoutScreen: React.FC = () => {
+    const navigate = useNavigate();
+    const { 
+      cartItems, 
+      deliveryDetails, 
+      cashbackBalance,
+      contact,
+      contactId,
+      setCashbackBalance,
+      clearCart 
+    } = useAppContext();
+    
     const [isProcessing, setIsProcessing] = useState(false);
-    const cartItems: CartItem[] = nav.data?.cartItems || [];
-    const deliveryDetails = nav.data?.deliveryDetails;
-    const cashbackBalance = nav.data?.cashbackBalance || 0;
-    const contact = nav.data?.contact;
 
     // Calculate total
     const subtotal = cartItems.reduce((sum, item) => sum + (item.price * item.quantity), 0);
@@ -336,8 +320,6 @@ export const CheckoutScreen: React.FC<{ nav: NavContextType }> = ({ nav }) => {
         setIsProcessing(true);
         
         try {
-            const contactId = nav.data?.contactId;
-            
             // Save the delivery address to GHL for future reuse
             if (deliveryDetails?.address && contactId) {
                 try {
@@ -357,23 +339,22 @@ export const CheckoutScreen: React.FC<{ nav: NavContextType }> = ({ nav }) => {
             const cashbackEarned = total * 0.05;
             const newCashbackBalance = cashbackBalance + cashbackEarned;
 
-            // Update nav data with new cashback balance and order info
-            nav.setData({
-                ...nav.data,
-                cashbackBalance: newCashbackBalance,
-                lastOrder: {
-                    items: cartItems,
-                    total,
-                    date: deliveryDetails?.date,
-                    time: deliveryDetails?.time,
-                    address: deliveryDetails ? 
-                        `${deliveryDetails.address}, ${deliveryDetails.city}, ${deliveryDetails.state} ${deliveryDetails.zip}` : '',
-                },
-                // Clear cart after order
-                cartItems: [],
-            });
+            // Update cashback balance
+            setCashbackBalance(newCashbackBalance);
+            
+            // Clear cart
+            clearCart();
 
-            nav.navigate('success');
+            navigate('/success', { 
+              state: { 
+                orderTotal: total,
+                cashbackEarned,
+                newCashbackBalance,
+                items: cartItems,
+                deliveryDetails 
+              },
+              replace: true 
+            });
         } catch (error) {
             console.error('Checkout error:', error);
             alert('Something went wrong. Please try again.');
@@ -386,7 +367,7 @@ export const CheckoutScreen: React.FC<{ nav: NavContextType }> = ({ nav }) => {
         <div className="bg-background-light dark:bg-background-dark h-screen flex flex-col text-[#181111] dark:text-white w-full max-w-md mx-auto shadow-2xl overflow-hidden">
              <header className="sticky top-0 z-50 bg-white dark:bg-[#181111] border-b border-gray-200 dark:border-gray-800 shrink-0">
                 <div className="flex items-center p-4 pb-2 justify-between">
-                    <div onClick={() => nav.goBack()} className="text-[#181111] dark:text-white flex size-12 shrink-0 items-center cursor-pointer">
+                    <div onClick={() => navigate(-1)} className="text-[#181111] dark:text-white flex size-12 shrink-0 items-center cursor-pointer">
                         <span className="material-symbols-outlined">arrow_back_ios</span>
                     </div>
                     <h2 className="text-[#181111] dark:text-white text-lg font-bold leading-tight tracking-[-0.015em] flex-1 text-center">Checkout</h2>
@@ -468,18 +449,28 @@ export const CheckoutScreen: React.FC<{ nav: NavContextType }> = ({ nav }) => {
     );
 };
 
-export const OrderSuccessScreen: React.FC<{ nav: NavContextType }> = ({ nav }) => {
-    const deliveryDetails = nav.data?.deliveryDetails;
-    const lastOrder = nav.data?.lastOrder;
-    const cashbackBalance = nav.data?.cashbackBalance || 0;
+export const OrderSuccessScreen: React.FC = () => {
+    const navigate = useNavigate();
+    const location = useLocation();
+    const { deliveryDetails, cashbackBalance } = useAppContext();
     
-    const fullAddress = deliveryDetails 
-        ? `${deliveryDetails.address}, ${deliveryDetails.city}, ${deliveryDetails.state} ${deliveryDetails.zip}`.trim()
-        : lastOrder?.address || 'No address';
-
-    // Calculate cashback earned (5% of order total)
-    const orderTotal = lastOrder?.total || 0;
-    const cashbackEarned = orderTotal * 0.05;
+    // Get order data from route state
+    const orderState = location.state as { 
+      orderTotal?: number; 
+      cashbackEarned?: number;
+      newCashbackBalance?: number;
+      items?: CartItem[];
+      deliveryDetails?: typeof deliveryDetails;
+    } | null;
+    
+    const orderTotal = orderState?.orderTotal || 0;
+    const cashbackEarned = orderState?.cashbackEarned || orderTotal * 0.05;
+    const orderItems = orderState?.items || [];
+    const orderDeliveryDetails = orderState?.deliveryDetails || deliveryDetails;
+    
+    const fullAddress = orderDeliveryDetails 
+        ? `${orderDeliveryDetails.address}, ${orderDeliveryDetails.city}, ${orderDeliveryDetails.state} ${orderDeliveryDetails.zip}`.trim()
+        : 'No address';
 
     return (
         <div className="bg-background-light dark:bg-background-dark h-screen w-full max-w-md mx-auto shadow-2xl relative flex flex-col overflow-hidden">
@@ -495,13 +486,11 @@ export const OrderSuccessScreen: React.FC<{ nav: NavContextType }> = ({ nav }) =
                     
                     <div className="bg-white dark:bg-[#2a1a1a] rounded-xl p-4 text-left shadow-sm border border-gray-100 dark:border-white/5 mb-6">
                         <div className="border-b border-gray-100 dark:border-gray-700 pb-3 mb-3">
-                            {lastOrder?.items?.map((item: CartItem, idx: number) => (
+                            {orderItems.map((item, idx) => (
                                 <div key={idx} className="flex justify-between font-bold text-[#181111] dark:text-white mb-1">
                                     <span>{item.quantity}x {item.name}</span>
                                 </div>
-                            )) || (
-                                <div className="text-gray-500">Order items</div>
-                            )}
+                            ))}
                              <div className="flex justify-between items-center mt-3 pt-3 border-t border-dashed border-gray-200">
                                 <span className="text-gray-500">Total Paid</span>
                                 <span className="text-xl font-black text-primary">{formatPrice(orderTotal)}</span>
@@ -514,7 +503,7 @@ export const OrderSuccessScreen: React.FC<{ nav: NavContextType }> = ({ nav }) =
                              </div>
                              <div className="flex gap-2">
                                 <span className="material-symbols-outlined text-sm">schedule</span>
-                                <span>{deliveryDetails?.date || lastOrder?.date || '--'} @ {deliveryDetails?.time || lastOrder?.time || '--:--'}</span>
+                                <span>{orderDeliveryDetails?.date || '--'} @ {orderDeliveryDetails?.time || '--:--'}</span>
                              </div>
                         </div>
                     </div>
@@ -529,7 +518,7 @@ export const OrderSuccessScreen: React.FC<{ nav: NavContextType }> = ({ nav }) =
                 </div>
             </div>
              <div className="fixed bottom-0 left-0 right-0 max-w-md mx-auto p-4 bg-white/80 dark:bg-background-dark/80 backdrop-blur-md flex flex-col gap-3">
-                <button onClick={() => nav.navigate('home')} className="w-full py-4 bg-primary text-white font-bold rounded-xl text-center hover:opacity-90 transition-opacity">
+                <button onClick={() => navigate('/home', { replace: true })} className="w-full py-4 bg-primary text-white font-bold rounded-xl text-center hover:opacity-90 transition-opacity">
                     Back to Home
                 </button>
                 <button className="w-full py-3 text-gray-500 font-bold text-sm">Download Receipt</button>

@@ -1,5 +1,96 @@
 # Changelog
 
+## 2026-01-12 (Late Night Update)
+
+### Major Refactor - React Router Implementation
+
+Refactored the entire app from a single-page switch-based navigation system to use React Router v7 with proper URL paths for each screen. This enables browser history navigation, shareable URLs, and a more standard React architecture.
+
+#### New Dependencies
+- Added `react-router` v7 for declarative routing
+
+#### New Files Created
+- `src/context/AppContext.tsx` - Centralized state management via React Context
+  - Manages user session (contactId, contact)
+  - Manages cart state (cartItems, guestCount, deliveryDetails)
+  - Manages orders and loyalty (orders, selectedOrder, cashbackBalance)
+  - Provides typed actions: setContactSession, clearSession, addToCart, updateCartItemQuantity, removeFromCart, clearCart, etc.
+  - Handles session initialization from localStorage on mount
+
+- `src/routes.tsx` - Route configuration with all app routes
+  - Auth routes: `/`, `/login`, `/login/email`, `/verify`, `/verify/email`, `/welcome`, `/new-customer`, `/delivery-setup`
+  - Main routes: `/home`, `/menu`, `/menu/category/:categoryId`, `/menu/item/:itemId`
+  - Order routes: `/cart`, `/checkout`, `/success`
+  - Management routes: `/orders`, `/orders/:orderId`, `/reorder`, `/reorder/modify`
+  - Account routes: `/account`, `/account/addresses`, `/account/loyalty`, `/account/scheduled`, `/invoices`
+  - Debug route: `/debug`
+
+#### Modified Files
+- `App.tsx` - Simplified to wrap app with `AppContextProvider` and render `AppRoutes`
+- `index.tsx` - Added `BrowserRouter` wrapper
+- `types.ts` - Kept legacy types for reference, added notes about new architecture
+- `src/screens/AuthScreens.tsx` - All screens converted to use `useNavigate()` and `useAppContext()`
+- `src/screens/HomeScreens.tsx` - Converted screens, `BottomNav` now uses `NavLink` with `useLocation()` for active state
+- `src/screens/OrderScreens.tsx` - Converted screens, item data passed via route state
+- `src/screens/ManagementScreens.tsx` - Converted screens, order ID from URL params via `useParams()`
+- `src/screens/DebugScreens.tsx` - Converted to use router hooks
+
+#### Navigation Changes
+| Old Pattern | New Pattern |
+|-------------|-------------|
+| `nav.navigate('home')` | `navigate('/home')` |
+| `nav.goBack()` | `navigate(-1)` |
+| `nav.data.contactId` | `useAppContext().contactId` |
+| `nav.setData({...})` | `setContactSession()`, `addToCart()`, etc. |
+| Switch statement in App.tsx | `<Routes>` with `<Route>` components |
+
+#### URL Structure
+- `/` - Splash screen
+- `/home` - Home dashboard
+- `/menu` - Menu categories
+- `/menu/category/abc123` - Category items (dynamic categoryId)
+- `/menu/item/xyz789` - Item detail (dynamic itemId)
+- `/cart` - Shopping cart
+- `/checkout` - Payment
+- `/success` - Order confirmation
+- `/orders` - Order history
+- `/orders/abc123` - Order detail (dynamic orderId)
+- `/account` - Account settings
+- `/account/loyalty` - Cashback rewards
+- `/debug` - Developer diagnostics
+
+---
+
+## 2026-01-12 (Night Update)
+
+### Fixed - Menu Items Rendering as Black Bars
+- Fixed `CategoryDetailScreen` in `HomeScreens.tsx` where menu items were appearing as black horizontal bars instead of proper item cards
+- Replaced CSS `background-image` approach with `<img>` tag for more reliable image rendering
+- Added `onError` handler to images to gracefully fall back to placeholder when image URLs fail to load
+- Added null/undefined fallback handling for item properties (`name`, `price`, `id`)
+- Added null check for individual items in the map function to prevent rendering issues from malformed data
+- Added debug console logging to help diagnose menu data fetch issues (logs item count and sample data)
+
+### Enhanced - Auto-Fill Delivery Address from GHL Contact Profile
+- Updated `DeliverySetupScreen` in `AuthScreens.tsx` to auto-fill address fields (street, city, state, ZIP) from GHL contact profile
+- If the user's GHL contact has saved address data, the Delivery Details form now pre-populates with that information
+- Added visual indicator ("Address auto-filled from your profile") when address is auto-filled from GHL
+- Updated phone verification flow (`VerificationScreen`) to fetch full contact profile after search to ensure address data is available
+- Updated email verification flow (`VerificationEmailScreen`) to fetch full contact profile after search
+- Priority order for address initialization: (1) previously entered delivery details, (2) GHL contact address, (3) empty fields
+
+### Enhanced - Session Persistence / Auto-Login
+- Updated `SplashScreen` to check for existing valid session on app startup
+- If user has a valid Supabase session AND stored GHL contact ID, the app now:
+  - Verifies the session is still valid (session ID matches stored session ID)
+  - Fetches the full contact profile from GHL (including address data)
+  - Navigates directly to Home screen, skipping the login flow
+- If session is expired/invalid, clears stored data and shows login screen
+- Added support for legacy sessions (contact ID exists but no session ID was stored)
+- Console logging added for debugging session restoration flow
+
+---
+
 ## 2026-01-12 (Evening Update)
 
 ### Dynamic UI Integration - Replace Hardcoded Data with Database & GHL Data

@@ -1,9 +1,10 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { NavContextType } from '../../types';
+import { useNavigate } from 'react-router';
+import { useAppContext } from '../context/AppContext';
 import { supabase } from '../lib/supabase';
 import { ghlService } from '../services/ghl';
 import { getRecommendation, formatPrice } from '../lib/cateringRecommendations';
-import { saveContactSession } from '../lib/storage';
+import { saveContactSession, getContactId, getSessionId } from '../lib/storage';
 
 /**
  * Extract firstName and lastName from email address
@@ -23,7 +24,7 @@ function extractNameFromEmail(email: string): { firstName: string; lastName: str
       const parts = localPart.split(sep);
       if (parts.length >= 2) {
         const firstName = parts[0].trim();
-        const lastName = parts.slice(1).join(sep).trim(); // Join remaining parts in case of multiple separators
+        const lastName = parts.slice(1).join(sep).trim();
         if (firstName && lastName) {
           return { 
             firstName: firstName.charAt(0).toUpperCase() + firstName.slice(1).toLowerCase(),
@@ -34,20 +35,68 @@ function extractNameFromEmail(email: string): { firstName: string; lastName: str
     }
   }
 
-  // Fallback: use entire local part as firstName if no separator found
   return { 
     firstName: localPart.trim() || '', 
     lastName: '' 
   };
 }
 
-export const SplashScreen: React.FC<{ nav: NavContextType }> = ({ nav }) => {
+export const SplashScreen: React.FC = () => {
+  const navigate = useNavigate();
+  const { contactId, contact, isSessionLoading, setContactSession } = useAppContext();
+
   useEffect(() => {
+    const checkExistingSession = async () => {
+      // Wait for context to finish loading
+      if (isSessionLoading) return;
+
+      // If we have a valid session, go to home
+      if (contactId) {
+        console.log('[Splash] Valid session found, navigating to home');
+        navigate('/home', { replace: true });
+        return;
+      }
+
+      // Check for stored contact ID and session ID (fallback)
+      const storedContactId = getContactId();
+      const storedSessionId = getSessionId();
+      
+      console.log('[Splash] Checking session - contactId:', storedContactId, 'sessionId:', storedSessionId?.slice(0, 8) + '...');
+
+      if (storedContactId && storedSessionId) {
+        const { data: { session } } = await supabase.auth.getSession();
+        const currentSessionId = session?.user?.id || session?.access_token || null;
+        
+        if (currentSessionId && currentSessionId === storedSessionId) {
+          console.log('[Splash] Valid session found, restoring user session...');
+          
+          try {
+            const profileResponse = await ghlService.getContactProfile(storedContactId);
+            const fetchedContact = profileResponse.contact || profileResponse || null;
+            
+            setContactSession(storedContactId, fetchedContact, storedSessionId);
+            navigate('/home', { replace: true });
+            return;
+          } catch (profileError) {
+            console.warn('[Splash] Failed to fetch contact profile:', profileError);
+            setContactSession(storedContactId, null, storedSessionId);
+            navigate('/home', { replace: true });
+            return;
+          }
+        }
+      }
+
+      // No valid session - go to login
+      navigate('/login', { replace: true });
+    };
+
+    // Delay to show splash briefly, then check session
     const timer = setTimeout(() => {
-      nav.navigate('login');
-    }, 2000);
+      checkExistingSession();
+    }, 1500);
+    
     return () => clearTimeout(timer);
-  }, [nav]);
+  }, [navigate, contactId, isSessionLoading, setContactSession]);
 
   return (
     <div className="relative flex h-screen w-full flex-col items-center justify-between bg-background-light dark:bg-background-dark group/design-root overflow-hidden font-display transition-colors duration-300">
@@ -75,8 +124,10 @@ export const SplashScreen: React.FC<{ nav: NavContextType }> = ({ nav }) => {
   );
 };
 
-export const LoginScreen: React.FC<{ nav: NavContextType }> = ({ nav }) => {
-  const [phone, setPhone] = useState('');
+export const LoginScreen: React.FC = () => {
+  const navigate = useNavigate();
+  const { setPhone } = useAppContext();
+  const [phone, setPhoneLocal] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
   const formatPhoneNumber = (value: string) => {
@@ -90,7 +141,7 @@ export const LoginScreen: React.FC<{ nav: NavContextType }> = ({ nav }) => {
 
   const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const formatted = formatPhoneNumber(e.target.value);
-    setPhone(formatted);
+    setPhoneLocal(formatted);
   };
 
   const handleSendCode = async () => {
@@ -117,8 +168,8 @@ export const LoginScreen: React.FC<{ nav: NavContextType }> = ({ nav }) => {
 
       if (error) throw error;
 
-      nav.setData({ ...nav.data, phone: cleanPhone });
-      nav.navigate('verify');
+      setPhone(cleanPhone);
+      navigate('/verify');
     } catch (error: any) {
       console.error('Error sending OTP:', error);
       alert(error.message || 'Failed to send verification code. Please try again.');
@@ -177,7 +228,7 @@ export const LoginScreen: React.FC<{ nav: NavContextType }> = ({ nav }) => {
                 onClick={(e) => {
                   e.preventDefault();
                   e.stopPropagation();
-                  nav.navigate('login_email');
+                  navigate('/login/email');
                 }} 
                 className="text-sm text-primary font-bold hover:underline py-2 block w-full cursor-pointer relative z-30"
               >
@@ -185,7 +236,7 @@ export const LoginScreen: React.FC<{ nav: NavContextType }> = ({ nav }) => {
               </button>
               <button 
                 type="button"
-                onClick={() => nav.navigate('debug')} 
+                onClick={() => navigate('/debug')} 
                 className="mt-2 text-xs text-slate-300 dark:text-slate-700 hover:text-slate-500 transition-colors py-1 block w-full"
               >
                 Dev: Connection Tester
@@ -198,8 +249,10 @@ export const LoginScreen: React.FC<{ nav: NavContextType }> = ({ nav }) => {
   );
 };
 
-export const LoginEmailScreen: React.FC<{ nav: NavContextType }> = ({ nav }) => {
-  const [email, setEmail] = useState('');
+export const LoginEmailScreen: React.FC = () => {
+  const navigate = useNavigate();
+  const { setEmail } = useAppContext();
+  const [email, setEmailLocal] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
   const handleSendCode = async () => {
@@ -216,8 +269,8 @@ export const LoginEmailScreen: React.FC<{ nav: NavContextType }> = ({ nav }) => 
 
       if (error) throw error;
 
-      nav.setData({ ...nav.data, email });
-      nav.navigate('verify_email');
+      setEmail(email);
+      navigate('/verify/email');
     } catch (error: any) {
       console.error('Error sending OTP:', error);
       alert(error.message || 'Failed to send verification code. Please try again.');
@@ -250,7 +303,7 @@ export const LoginEmailScreen: React.FC<{ nav: NavContextType }> = ({ nav }) => 
                 placeholder="name@company.com" 
                 type="email"
                 value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                onChange={(e) => setEmailLocal(e.target.value)}
                 disabled={isLoading}
               />
             </div>
@@ -273,7 +326,7 @@ export const LoginEmailScreen: React.FC<{ nav: NavContextType }> = ({ nav }) => 
                 onClick={(e) => {
                   e.preventDefault();
                   e.stopPropagation();
-                  nav.navigate('login');
+                  navigate('/login');
                 }} 
                 className="text-sm text-primary font-bold hover:underline py-2 block w-full cursor-pointer relative z-30"
               >
@@ -281,7 +334,7 @@ export const LoginEmailScreen: React.FC<{ nav: NavContextType }> = ({ nav }) => 
               </button>
               <button 
                 type="button"
-                onClick={() => nav.navigate('debug')} 
+                onClick={() => navigate('/debug')} 
                 className="mt-2 text-xs text-slate-300 dark:text-slate-700 hover:text-slate-500 transition-colors py-1 block w-full"
               >
                 Dev: Connection Tester
@@ -294,7 +347,9 @@ export const LoginEmailScreen: React.FC<{ nav: NavContextType }> = ({ nav }) => 
   );
 };
 
-export const VerificationScreen: React.FC<{ nav: NavContextType }> = ({ nav }) => {
+export const VerificationScreen: React.FC = () => {
+  const navigate = useNavigate();
+  const { phone, setContactSession, setOrders, setSelectedOrder } = useAppContext();
   const [otp, setOtp] = useState(['', '', '', '', '', '']);
   const [isLoading, setIsLoading] = useState(false);
   const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
@@ -304,12 +359,9 @@ export const VerificationScreen: React.FC<{ nav: NavContextType }> = ({ nav }) =
     if (isNaN(Number(value))) return;
 
     const newOtp = [...otp];
-    // Take only the last entered char if multiple (e.g., paste handled separately or fast typing)
-    // but here we primarily handle single char input
     newOtp[index] = value.substring(value.length - 1);
     setOtp(newOtp);
 
-    // Auto-advance
     if (value && index < 5) {
       inputRefs.current[index + 1]?.focus();
     }
@@ -317,7 +369,6 @@ export const VerificationScreen: React.FC<{ nav: NavContextType }> = ({ nav }) =
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>, index: number) => {
     if (e.key === 'Backspace' && !otp[index] && index > 0) {
-      // Move back if current is empty and backspace pressed
       inputRefs.current[index - 1]?.focus();
     }
   };
@@ -332,7 +383,6 @@ export const VerificationScreen: React.FC<{ nav: NavContextType }> = ({ nav }) =
       }
     });
     setOtp(newOtp);
-    // Focus last filled or next empty
     const nextFocusIndex = Math.min(pastedData.length, 5);
     inputRefs.current[nextFocusIndex]?.focus();
   };
@@ -346,7 +396,6 @@ export const VerificationScreen: React.FC<{ nav: NavContextType }> = ({ nav }) =
 
     setIsLoading(true);
     try {
-      const phone = nav.data?.phone;
       if (!phone) throw new Error('Phone number missing');
 
       const { error } = await supabase.auth.verifyOtp({
@@ -357,52 +406,50 @@ export const VerificationScreen: React.FC<{ nav: NavContextType }> = ({ nav }) =
 
       if (error) throw error;
 
-      // Get Supabase session for linking
       const { data: { session } } = await supabase.auth.getSession();
       const sessionId = session?.user?.id || session?.access_token || null;
 
-      // Check GHL for contact existence
       try {
         const result = await ghlService.searchContact(phone);
-        // Assuming result contains a 'contacts' array or similar based on GHL API structure.
-        // If contacts found -> existing user
         if (result.contacts && result.contacts.length > 0) {
-            const contact = result.contacts[0];
-            const contactId = contact.id;
-            
-            // Save contact ID and session ID to localStorage
-            saveContactSession(contactId, sessionId || undefined);
-            nav.setData({ ...nav.data, contactId, contact });
-            
-            // Check if contact has past orders before navigating
-            try {
-              const orders = await ghlService.getOrdersByContactId(contactId);
-              if (orders && orders.length > 0) {
-                // Contact has past orders -> navigate to welcome_back
-                nav.navigate('welcome_back');
-              } else {
-                // Contact exists but has no orders -> navigate to new_customer flow
-                nav.navigate('new_customer');
-              }
-            } catch (orderError) {
-              // If order check fails, default to new_customer flow
-              console.error('Failed to check orders for contact:', orderError);
-              nav.navigate('new_customer');
+          const searchContact = result.contacts[0];
+          const contactId = searchContact.id;
+          
+          let contact = searchContact;
+          try {
+            const profileResponse = await ghlService.getContactProfile(contactId);
+            contact = profileResponse.contact || profileResponse || searchContact;
+          } catch (profileError) {
+            console.warn('[Auth] Could not fetch full profile, using search result:', profileError);
+          }
+          
+          setContactSession(contactId, contact, sessionId || undefined);
+          
+          try {
+            const orders = await ghlService.getOrdersByContactId(contactId);
+            if (orders && orders.length > 0) {
+              setOrders(orders);
+              setSelectedOrder(orders[0]);
+              navigate('/welcome', { replace: true });
+            } else {
+              navigate('/new-customer', { replace: true });
             }
+          } catch (orderError) {
+            console.error('Failed to check orders for contact:', orderError);
+            navigate('/new-customer', { replace: true });
+          }
         } else {
-            // No contact found - save session ID if available
-            if (sessionId) {
-              saveContactSession('', sessionId);
-            }
-            nav.navigate('new_customer');
+          if (sessionId) {
+            saveContactSession('', sessionId);
+          }
+          navigate('/new-customer', { replace: true });
         }
       } catch (ghlError) {
         console.error('GHL Check failed', ghlError);
-        // Save session even if GHL check fails
         if (sessionId) {
           saveContactSession('', sessionId);
         }
-        nav.navigate('new_customer');
+        navigate('/new-customer', { replace: true });
       }
 
     } catch (error: any) {
@@ -417,14 +464,14 @@ export const VerificationScreen: React.FC<{ nav: NavContextType }> = ({ nav }) =
     <div className="relative flex flex-col h-screen w-full bg-background-light dark:bg-background-dark overflow-hidden font-display transition-colors duration-200">
        <div className="w-full max-w-md mx-auto bg-white dark:bg-[#1a0c0c] h-full flex flex-col">
         <div className="flex items-center justify-between px-4 pt-4 pb-2 bg-transparent z-10">
-            <button onClick={() => nav.goBack()} className="flex items-center justify-center w-10 h-10 rounded-full hover:bg-black/5 dark:hover:bg-white/10 active:scale-95 transition-all text-slate-900 dark:text-white">
+            <button onClick={() => navigate(-1)} className="flex items-center justify-center w-10 h-10 rounded-full hover:bg-black/5 dark:hover:bg-white/10 active:scale-95 transition-all text-slate-900 dark:text-white">
             <span className="material-symbols-outlined" style={{fontSize: '24px'}}>arrow_back_ios_new</span>
             </button>
         </div>
         <div className="flex-1 flex flex-col items-center px-6 pt-6">
             <div className="w-full text-center mb-8 space-y-3">
             <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Verification Code</h1>
-            <p className="text-slate-500 dark:text-slate-400 text-base leading-relaxed">Enter the 6-digit code sent to <span className="font-bold text-slate-900 dark:text-white">{nav.data?.phone || '+1 (555) 123-4567'}</span></p>
+            <p className="text-slate-500 dark:text-slate-400 text-base leading-relaxed">Enter the 6-digit code sent to <span className="font-bold text-slate-900 dark:text-white">{phone || '+1 (555) 123-4567'}</span></p>
             </div>
             <div className="w-full max-w-sm mb-8">
             <div className="flex justify-between gap-2 sm:gap-3">
@@ -464,7 +511,9 @@ export const VerificationScreen: React.FC<{ nav: NavContextType }> = ({ nav }) =
   );
 };
 
-export const VerificationEmailScreen: React.FC<{ nav: NavContextType }> = ({ nav }) => {
+export const VerificationEmailScreen: React.FC = () => {
+  const navigate = useNavigate();
+  const { email, setContactSession, setOrders, setSelectedOrder } = useAppContext();
   const [otp, setOtp] = useState(['', '', '', '', '', '']);
   const [isLoading, setIsLoading] = useState(false);
   const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
@@ -511,7 +560,6 @@ export const VerificationEmailScreen: React.FC<{ nav: NavContextType }> = ({ nav
 
     setIsLoading(true);
     try {
-      const email = nav.data?.email;
       if (!email) throw new Error('Email address missing');
 
       const { error } = await supabase.auth.verifyOtp({
@@ -522,83 +570,76 @@ export const VerificationEmailScreen: React.FC<{ nav: NavContextType }> = ({ nav
 
       if (error) throw error;
 
-      // Get Supabase session for linking
       const { data: { session } } = await supabase.auth.getSession();
       const sessionId = session?.user?.id || session?.access_token || null;
 
-      // Check GHL for contact existence
       try {
         const result = await ghlService.searchContact(email);
         let contactId: string | null = null;
         let contact: any = null;
 
         if (result.contacts && result.contacts.length > 0) {
-          // Contact found - use existing
-          contact = result.contacts[0];
-          contactId = contact.id;
+          const searchContact = result.contacts[0];
+          contactId = searchContact.id;
+          
+          try {
+            const profileResponse = await ghlService.getContactProfile(contactId);
+            contact = profileResponse.contact || profileResponse || searchContact;
+          } catch (profileError) {
+            console.warn('[Auth] Could not fetch full profile, using search result:', profileError);
+            contact = searchContact;
+          }
         } else {
-          // Contact not found - create new contact
           try {
             const nameParts = extractNameFromEmail(email);
             const createResult = await ghlService.createContact({
               firstName: nameParts.firstName,
               lastName: nameParts.lastName,
               email: email,
-              phone: '', // Empty phone for email-only contacts
+              phone: '',
             });
 
             if (createResult.contact && createResult.contact.id) {
               contactId = createResult.contact.id;
               contact = createResult.contact;
-            } else {
-              console.error('Contact creation succeeded but no contact ID returned');
             }
           } catch (createError) {
             console.error('Failed to create contact in GHL:', createError);
-            // Continue to new_customer flow even if creation fails
           }
         }
 
-        // Save contact ID and session ID to localStorage if we have a contact
         if (contactId) {
-          saveContactSession(contactId, sessionId || undefined);
-          nav.setData({ ...nav.data, contactId, contact });
+          setContactSession(contactId, contact, sessionId || undefined);
           
-          // Navigate based on whether contact was found or created
           if (result.contacts && result.contacts.length > 0) {
-            // Contact was found (not newly created) - check for past orders
             try {
               const orders = await ghlService.getOrdersByContactId(contactId);
               if (orders && orders.length > 0) {
-                // Contact has past orders -> navigate to welcome_back
-                nav.navigate('welcome_back');
+                setOrders(orders);
+                setSelectedOrder(orders[0]);
+                navigate('/welcome', { replace: true });
               } else {
-                // Contact exists but has no orders -> navigate to new_customer flow
-                nav.navigate('new_customer');
+                navigate('/new-customer', { replace: true });
               }
             } catch (orderError) {
-              // If order check fails, default to new_customer flow
               console.error('Failed to check orders for contact:', orderError);
-              nav.navigate('new_customer');
+              navigate('/new-customer', { replace: true });
             }
           } else {
-            // Contact was newly created - navigate to new_customer (skip order check)
-            nav.navigate('new_customer');
+            navigate('/new-customer', { replace: true });
           }
         } else {
-          // No contact ID available - still save session if we have it
           if (sessionId) {
             saveContactSession('', sessionId);
           }
-          nav.navigate('new_customer');
+          navigate('/new-customer', { replace: true });
         }
       } catch (ghlError) {
         console.error('GHL Check failed', ghlError);
-        // Save session even if GHL check fails
         if (sessionId) {
           saveContactSession('', sessionId);
         }
-        nav.navigate('new_customer');
+        navigate('/new-customer', { replace: true });
       }
 
     } catch (error: any) {
@@ -613,14 +654,14 @@ export const VerificationEmailScreen: React.FC<{ nav: NavContextType }> = ({ nav
     <div className="relative flex flex-col h-screen w-full bg-background-light dark:bg-background-dark overflow-hidden font-display transition-colors duration-200">
        <div className="w-full max-w-md mx-auto bg-white dark:bg-[#1a0c0c] h-full flex flex-col">
         <div className="flex items-center justify-between px-4 pt-4 pb-2 bg-transparent z-10">
-            <button onClick={() => nav.goBack()} className="flex items-center justify-center w-10 h-10 rounded-full hover:bg-black/5 dark:hover:bg-white/10 active:scale-95 transition-all text-slate-900 dark:text-white">
+            <button onClick={() => navigate(-1)} className="flex items-center justify-center w-10 h-10 rounded-full hover:bg-black/5 dark:hover:bg-white/10 active:scale-95 transition-all text-slate-900 dark:text-white">
             <span className="material-symbols-outlined" style={{fontSize: '24px'}}>arrow_back_ios_new</span>
             </button>
         </div>
         <div className="flex-1 flex flex-col items-center px-6 pt-6">
             <div className="w-full text-center mb-8 space-y-3">
             <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Check your email</h1>
-            <p className="text-slate-500 dark:text-slate-400 text-base leading-relaxed">Enter the 6-digit code sent to <span className="font-bold text-slate-900 dark:text-white">{nav.data?.email || 'your@email.com'}</span></p>
+            <p className="text-slate-500 dark:text-slate-400 text-base leading-relaxed">Enter the 6-digit code sent to <span className="font-bold text-slate-900 dark:text-white">{email || 'your@email.com'}</span></p>
             </div>
             <div className="w-full max-w-sm mb-8">
             <div className="flex justify-between gap-2 sm:gap-3">
@@ -660,14 +701,11 @@ export const VerificationEmailScreen: React.FC<{ nav: NavContextType }> = ({ nav
   );
 };
 
-export const WelcomeBackScreen: React.FC<{ nav: NavContextType }> = ({ nav }) => {
-  const [lastOrder, setLastOrder] = useState<any>(null);
+export const WelcomeBackScreen: React.FC = () => {
+  const navigate = useNavigate();
+  const { contact, contactId, orders, selectedOrder, setOrders, setSelectedOrder } = useAppContext();
   const [isLoading, setIsLoading] = useState(true);
   
-  const contact = nav.data?.contact;
-  const contactId = nav.data?.contactId;
-  
-  // Get display name from contact
   const displayName = contact?.companyName 
     || contact?.name 
     || (contact?.firstName && contact?.lastName ? `${contact.firstName} ${contact.lastName}` : null)
@@ -681,16 +719,16 @@ export const WelcomeBackScreen: React.FC<{ nav: NavContextType }> = ({ nav }) =>
         return;
       }
 
+      if (orders.length > 0) {
+        setIsLoading(false);
+        return;
+      }
+
       try {
-        const orders = await ghlService.getOrdersByContactId(contactId);
-        if (orders && orders.length > 0) {
-          setLastOrder(orders[0]);
-          // Store orders in nav.data for reorder functionality
-          nav.setData({
-            ...nav.data,
-            orders,
-            selectedOrder: orders[0],
-          });
+        const fetchedOrders = await ghlService.getOrdersByContactId(contactId);
+        if (fetchedOrders && fetchedOrders.length > 0) {
+          setOrders(fetchedOrders);
+          setSelectedOrder(fetchedOrders[0]);
         }
       } catch (error) {
         console.error('Failed to fetch orders:', error);
@@ -700,9 +738,10 @@ export const WelcomeBackScreen: React.FC<{ nav: NavContextType }> = ({ nav }) =>
     }
 
     fetchLastOrder();
-  }, [contactId]);
+  }, [contactId, orders.length, setOrders, setSelectedOrder]);
 
-  // Format last order date
+  const lastOrder = selectedOrder || (orders.length > 0 ? orders[0] : null);
+
   const formatOrderDate = (dateString: string) => {
     try {
       const date = new Date(dateString);
@@ -712,7 +751,6 @@ export const WelcomeBackScreen: React.FC<{ nav: NavContextType }> = ({ nav }) =>
     }
   };
 
-  // Get order summary text
   const getOrderSummary = () => {
     if (!lastOrder) return 'No previous orders';
     if (lastOrder.items && lastOrder.items.length > 0) {
@@ -721,7 +759,6 @@ export const WelcomeBackScreen: React.FC<{ nav: NavContextType }> = ({ nav }) =>
     return 'Catering Order';
   };
 
-  // Format price
   const formatOrderPrice = (amount: number) => {
     return new Intl.NumberFormat('en-US', {
       style: 'currency',
@@ -763,12 +800,12 @@ export const WelcomeBackScreen: React.FC<{ nav: NavContextType }> = ({ nav }) =>
 
         <div className="w-full space-y-3 mt-auto mb-8">
             {lastOrder && (
-              <button onClick={() => nav.navigate('modify_reorder')} className="w-full h-14 bg-primary text-white rounded-xl font-bold text-lg shadow-lg shadow-primary/20 hover:bg-primary-hover active:scale-[0.98] transition-all flex items-center justify-center gap-2">
+              <button onClick={() => navigate('/reorder/modify')} className="w-full h-14 bg-primary text-white rounded-xl font-bold text-lg shadow-lg shadow-primary/20 hover:bg-primary-hover active:scale-[0.98] transition-all flex items-center justify-center gap-2">
                   <span className="material-symbols-outlined">replay</span>
                   Reorder This Now
               </button>
             )}
-            <button onClick={() => nav.navigate('home')} className={`w-full h-14 rounded-xl font-bold text-lg active:scale-[0.98] transition-all ${
+            <button onClick={() => navigate('/home')} className={`w-full h-14 rounded-xl font-bold text-lg active:scale-[0.98] transition-all ${
               lastOrder 
                 ? 'bg-white dark:bg-transparent border-2 border-gray-200 dark:border-gray-700 text-[#181111] dark:text-white hover:bg-gray-50 dark:hover:bg-white/5'
                 : 'bg-primary text-white shadow-lg shadow-primary/20 hover:bg-primary-hover'
@@ -785,14 +822,6 @@ export const WelcomeBackScreen: React.FC<{ nav: NavContextType }> = ({ nav }) =>
 const RecommendationBox: React.FC<{ guestCount: number }> = ({ guestCount }) => {
   const recommendation = getRecommendation(guestCount);
   
-  const mainItemsSummary = recommendation.mainItems
-    .map(item => `${item.quantity} ${item.name}`)
-    .join(', ');
-  
-  const drinksSummary = recommendation.drinks
-    .map(item => `${item.quantity} ${item.name}`)
-    .join(', ');
-
   return (
     <div className="space-y-4">
       <div className="flex gap-3 items-start p-4 rounded-xl bg-orange-50 dark:bg-orange-900/10 border border-orange-100 dark:border-orange-900/20">
@@ -832,27 +861,29 @@ const RecommendationBox: React.FC<{ guestCount: number }> = ({ guestCount }) => 
   );
 };
 
-export const NewCustomerScreen: React.FC<{ nav: NavContextType }> = ({ nav }) => {
-  const [guestCount, setGuestCount] = useState(20);
+export const NewCustomerScreen: React.FC = () => {
+  const navigate = useNavigate();
+  const { setGuestCount } = useAppContext();
+  const [guestCountLocal, setGuestCountLocal] = useState(20);
   const [isEditing, setIsEditing] = useState(false);
 
   const MIN_GUESTS = 10;
   const MAX_GUESTS = 500;
   const STEP = 5;
 
-  const increment = () => setGuestCount(prev => Math.min(prev + STEP, MAX_GUESTS));
-  const decrement = () => setGuestCount(prev => Math.max(prev - STEP, MIN_GUESTS));
+  const increment = () => setGuestCountLocal(prev => Math.min(prev + STEP, MAX_GUESTS));
+  const decrement = () => setGuestCountLocal(prev => Math.max(prev - STEP, MIN_GUESTS));
 
   const handleDirectInput = (value: string) => {
     const num = parseInt(value, 10);
     if (!isNaN(num)) {
-      setGuestCount(Math.min(Math.max(num, MIN_GUESTS), MAX_GUESTS));
+      setGuestCountLocal(Math.min(Math.max(num, MIN_GUESTS), MAX_GUESTS));
     }
   };
 
   const handleProceed = () => {
-    nav.setData({ ...nav.data, guestCount });
-    nav.navigate('delivery_setup');
+    setGuestCount(guestCountLocal);
+    navigate('/delivery-setup');
   };
 
   return (
@@ -866,14 +897,14 @@ export const NewCustomerScreen: React.FC<{ nav: NavContextType }> = ({ nav }) =>
          <div className="flex items-center justify-between bg-gray-50 dark:bg-[#2a1a1a] p-4 rounded-xl mb-6">
             <button 
               onClick={decrement}
-              disabled={guestCount <= MIN_GUESTS}
+              disabled={guestCountLocal <= MIN_GUESTS}
               className="w-12 h-12 rounded-full bg-white dark:bg-[#3a2a2a] shadow-sm flex items-center justify-center text-primary text-2xl font-bold hover:scale-105 transition-transform disabled:opacity-40 disabled:hover:scale-100"
             >-</button>
             <div className="text-center">
                 {isEditing ? (
                   <input
                     type="number"
-                    value={guestCount}
+                    value={guestCountLocal}
                     onChange={(e) => handleDirectInput(e.target.value)}
                     onBlur={() => setIsEditing(false)}
                     autoFocus
@@ -885,18 +916,18 @@ export const NewCustomerScreen: React.FC<{ nav: NavContextType }> = ({ nav }) =>
                   <span 
                     onClick={() => setIsEditing(true)}
                     className="text-4xl font-black text-[#181111] dark:text-white cursor-pointer hover:text-primary transition-colors"
-                  >{guestCount}</span>
+                  >{guestCountLocal}</span>
                 )}
                 <p className="text-sm text-gray-500">People</p>
             </div>
             <button 
               onClick={increment}
-              disabled={guestCount >= MAX_GUESTS}
+              disabled={guestCountLocal >= MAX_GUESTS}
               className="w-12 h-12 rounded-full bg-primary shadow-lg shadow-primary/30 flex items-center justify-center text-white text-2xl font-bold hover:scale-105 transition-transform disabled:opacity-40 disabled:hover:scale-100"
             >+</button>
          </div>
 
-         <RecommendationBox guestCount={guestCount} />
+         <RecommendationBox guestCount={guestCountLocal} />
 
          <div className="mt-auto mb-8">
             <button onClick={handleProceed} className="w-full h-14 bg-primary text-white rounded-xl font-bold text-lg shadow-lg shadow-primary/20 hover:bg-primary-hover active:scale-[0.98] transition-all">
@@ -908,21 +939,37 @@ export const NewCustomerScreen: React.FC<{ nav: NavContextType }> = ({ nav }) =>
   );
 };
 
-export const DeliverySetupScreen: React.FC<{ nav: NavContextType }> = ({ nav }) => {
-  const guestCount = nav.data?.guestCount || 20;
+export const DeliverySetupScreen: React.FC = () => {
+  const navigate = useNavigate();
+  const { guestCount, contact, deliveryDetails, setDeliveryDetails } = useAppContext();
   
-  // Controlled form state - initialize from nav.data if returning to this screen
-  const [address, setAddress] = useState(nav.data?.deliveryDetails?.address || '');
-  const [city, setCity] = useState(nav.data?.deliveryDetails?.city || '');
-  const [state, setState] = useState(nav.data?.deliveryDetails?.state || '');
-  const [zip, setZip] = useState(nav.data?.deliveryDetails?.zip || '');
-  const [date, setDate] = useState(nav.data?.deliveryDetails?.date || '');
-  const [time, setTime] = useState(nav.data?.deliveryDetails?.time || '11:30');
-  const [specialInstructions, setSpecialInstructions] = useState(nav.data?.deliveryDetails?.specialInstructions || '');
+  const getInitialValue = (
+    deliveryField: string | undefined, 
+    contactField: string | undefined
+  ): string => {
+    return deliveryField || contactField || '';
+  };
+
+  const [address, setAddress] = useState(
+    getInitialValue(deliveryDetails?.address, contact?.address1)
+  );
+  const [city, setCity] = useState(
+    getInitialValue(deliveryDetails?.city, contact?.city)
+  );
+  const [state, setState] = useState(
+    getInitialValue(deliveryDetails?.state, contact?.state)
+  );
+  const [zip, setZip] = useState(
+    getInitialValue(deliveryDetails?.zip, contact?.postalCode)
+  );
+  const [date, setDate] = useState(deliveryDetails?.date || '');
+  const [time, setTime] = useState(deliveryDetails?.time || '11:30');
+  const [specialInstructions, setSpecialInstructions] = useState(deliveryDetails?.specialInstructions || '');
   const [error, setError] = useState('');
+  
+  const wasAutoFilled = !deliveryDetails?.address && contact?.address1;
 
   const handleContinue = () => {
-    // Validate required fields
     if (!address.trim()) {
       setError('Please enter a delivery address');
       return;
@@ -939,42 +986,35 @@ export const DeliverySetupScreen: React.FC<{ nav: NavContextType }> = ({ nav }) 
       setError('Please enter a ZIP code');
       return;
     }
-
-    // Validate date is selected
     if (!date) {
       setError('Please select a delivery date');
       return;
     }
 
-    // Clear any previous error
     setError('');
 
-    // Save delivery details to nav.data
-    nav.setData({
-      ...nav.data,
-      deliveryDetails: {
-        address: address.trim(),
-        city: city.trim(),
-        state: state.trim(),
-        zip: zip.trim(),
-        date,
-        time,
-        specialInstructions: specialInstructions.trim()
-      }
+    setDeliveryDetails({
+      address: address.trim(),
+      city: city.trim(),
+      state: state.trim(),
+      zip: zip.trim(),
+      date,
+      time,
+      specialInstructions: specialInstructions.trim()
     });
 
-    nav.navigate('menu');
+    navigate('/menu');
   };
   
   return (
     <div className="relative flex flex-col h-screen w-full bg-white dark:bg-[#1a0c0c] overflow-hidden font-display">
        <div className="flex items-center p-4">
-            <button onClick={() => nav.goBack()} className="flex items-center justify-center w-10 h-10 rounded-full hover:bg-gray-100 dark:hover:bg-white/10 text-[#181111] dark:text-white">
+            <button onClick={() => navigate(-1)} className="flex items-center justify-center w-10 h-10 rounded-full hover:bg-gray-100 dark:hover:bg-white/10 text-[#181111] dark:text-white">
                 <span className="material-symbols-outlined">arrow_back</span>
             </button>
             <div className="flex-1 text-center">
                 <p className="font-bold text-lg">Delivery Details</p>
-                <p className="text-xs text-primary font-medium">Catering for {guestCount} people</p>
+                <p className="text-xs text-primary font-medium">Catering for {guestCount || 20} people</p>
             </div>
        </div>
        <div className="flex-1 px-6 pt-4 flex flex-col gap-5 overflow-y-auto no-scrollbar">
@@ -1057,6 +1097,13 @@ export const DeliverySetupScreen: React.FC<{ nav: NavContextType }> = ({ nav }) 
 
             {error && (
               <p className="text-red-500 text-sm font-medium -mt-2">{error}</p>
+            )}
+
+            {wasAutoFilled && !error && (
+              <div className="flex items-center gap-2 p-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg -mt-2">
+                <span className="material-symbols-outlined text-green-600 dark:text-green-400 text-sm">check_circle</span>
+                <p className="text-green-700 dark:text-green-400 text-sm font-medium">Address auto-filled from your profile</p>
+              </div>
             )}
 
             <div className="mt-auto mb-8">

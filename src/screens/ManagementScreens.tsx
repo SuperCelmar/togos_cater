@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { NavContextType, GHLOrder, GHLContact } from '../../types';
+import { useNavigate, useParams } from 'react-router';
+import { useAppContext } from '../context/AppContext';
+import { GHLOrder, GHLContact } from '../../types';
 import { BottomNav } from './HomeScreens';
 import { ghlService } from '../services/ghl';
 import { formatPrice } from '../lib/menuService';
@@ -38,15 +40,20 @@ function getStatusColor(status: string): { bg: string; text: string } {
   }
 }
 
-export const OrdersScreen: React.FC<{ nav: NavContextType }> = ({ nav }) => {
-  const [orders, setOrders] = useState<GHLOrder[]>([]);
+export const OrdersScreen: React.FC = () => {
+  const navigate = useNavigate();
+  const { contactId, orders, setOrders, setSelectedOrder } = useAppContext();
   const [isLoading, setIsLoading] = useState(true);
-  
-  const contactId = nav.data?.contactId;
 
   useEffect(() => {
     async function fetchOrders() {
       if (!contactId) {
+        setIsLoading(false);
+        return;
+      }
+
+      // If orders already loaded, skip fetch
+      if (orders.length > 0) {
         setIsLoading(false);
         return;
       }
@@ -62,14 +69,11 @@ export const OrdersScreen: React.FC<{ nav: NavContextType }> = ({ nav }) => {
     }
 
     fetchOrders();
-  }, [contactId]);
+  }, [contactId, orders.length, setOrders]);
 
   const handleOrderClick = (order: GHLOrder) => {
-    nav.setData({
-      ...nav.data,
-      selectedOrder: order,
-    });
-    nav.navigate('order_detail');
+    setSelectedOrder(order);
+    navigate(`/orders/${order.id}`);
   };
 
   return (
@@ -125,21 +129,28 @@ export const OrdersScreen: React.FC<{ nav: NavContextType }> = ({ nav }) => {
         )}
       </main>
        <div className="fixed bottom-24 left-0 right-0 max-w-md mx-auto px-4 z-40 pointer-events-none">
-            <button onClick={() => nav.navigate('menu')} className="w-full h-12 bg-primary text-white rounded-xl font-bold shadow-lg shadow-primary/30 pointer-events-auto">Place New Order</button>
+            <button onClick={() => navigate('/menu')} className="w-full h-12 bg-primary text-white rounded-xl font-bold shadow-lg shadow-primary/30 pointer-events-auto">Place New Order</button>
        </div>
-      <BottomNav nav={nav} active="orders" />
+      <BottomNav />
     </div>
   );
 };
 
-export const OrderDetailScreen: React.FC<{ nav: NavContextType }> = ({ nav }) => {
-    const order = nav.data?.selectedOrder as GHLOrder | undefined;
+export const OrderDetailScreen: React.FC = () => {
+    const navigate = useNavigate();
+    const { orderId } = useParams<{ orderId: string }>();
+    const { selectedOrder, orders, setSelectedOrder } = useAppContext();
+    
+    // Find order from context or orders list
+    const order = selectedOrder?.id === orderId 
+      ? selectedOrder 
+      : orders.find(o => o.id === orderId);
     
     if (!order) {
       return (
         <div className="bg-background-light dark:bg-background-dark h-screen flex flex-col w-full max-w-md mx-auto shadow-2xl overflow-hidden items-center justify-center">
           <p className="text-gray-500">No order selected</p>
-          <button onClick={() => nav.goBack()} className="mt-4 text-primary font-bold">Go Back</button>
+          <button onClick={() => navigate(-1)} className="mt-4 text-primary font-bold">Go Back</button>
         </div>
       );
     }
@@ -150,7 +161,7 @@ export const OrderDetailScreen: React.FC<{ nav: NavContextType }> = ({ nav }) =>
         <div className="bg-background-light dark:bg-background-dark h-screen flex flex-col w-full max-w-md mx-auto shadow-2xl overflow-hidden">
             <header className="sticky top-0 z-50 bg-white dark:bg-background-dark border-b border-[#f4f0f0] dark:border-[#3a2a2a] shrink-0">
                 <div className="flex items-center p-4 justify-between">
-                    <button onClick={() => nav.goBack()} className="text-[#181111] dark:text-white flex items-center justify-center w-10 h-10 rounded-full hover:bg-gray-100 dark:hover:bg-white/10">
+                    <button onClick={() => navigate(-1)} className="text-[#181111] dark:text-white flex items-center justify-center w-10 h-10 rounded-full hover:bg-gray-100 dark:hover:bg-white/10">
                         <span className="material-symbols-outlined">arrow_back</span>
                     </button>
                     <h2 className="text-[#181111] dark:text-white text-lg font-bold leading-tight">Order #{order.id.slice(-5)}</h2>
@@ -205,17 +216,24 @@ export const OrderDetailScreen: React.FC<{ nav: NavContextType }> = ({ nav }) =>
                 </div>
             </main>
              <div className="p-4 bg-white dark:bg-[#1a0c0c] border-t border-gray-100 dark:border-gray-800 shrink-0">
-                <button onClick={() => nav.navigate('modify_reorder')} className="w-full h-14 bg-primary text-white font-bold rounded-xl shadow-lg shadow-primary/20">Reorder This</button>
+                <button 
+                  onClick={() => {
+                    setSelectedOrder(order);
+                    navigate(`/orders/${order.id}/reorder/modify`);
+                  }} 
+                  className="w-full h-14 bg-primary text-white font-bold rounded-xl shadow-lg shadow-primary/20"
+                >
+                  Reorder This
+                </button>
              </div>
         </div>
     );
 };
 
-export const ReorderScreen: React.FC<{ nav: NavContextType }> = ({ nav }) => {
-    const [orders, setOrders] = useState<GHLOrder[]>([]);
+export const ReorderScreen: React.FC = () => {
+    const navigate = useNavigate();
+    const { contactId, orders, setOrders, setSelectedOrder } = useAppContext();
     const [isLoading, setIsLoading] = useState(true);
-    
-    const contactId = nav.data?.contactId;
 
     useEffect(() => {
         async function fetchOrders() {
@@ -224,9 +242,13 @@ export const ReorderScreen: React.FC<{ nav: NavContextType }> = ({ nav }) => {
                 return;
             }
 
+            if (orders.length > 0) {
+                setIsLoading(false);
+                return;
+            }
+
             try {
                 const data = await ghlService.getOrdersByContactId(contactId);
-                // Get last few orders for reorder
                 setOrders((data || []).slice(0, 5));
             } catch (error) {
                 console.error('Failed to fetch orders:', error);
@@ -236,21 +258,20 @@ export const ReorderScreen: React.FC<{ nav: NavContextType }> = ({ nav }) => {
         }
 
         fetchOrders();
-    }, [contactId]);
+    }, [contactId, orders.length, setOrders]);
+
+    const recentOrders = orders.slice(0, 5);
 
     const handleReorder = (order: GHLOrder) => {
-        nav.setData({
-            ...nav.data,
-            selectedOrder: order,
-        });
-        nav.navigate('modify_reorder');
+        setSelectedOrder(order);
+        navigate('/reorder/modify');
     };
 
     return (
         <div className="bg-background-light dark:bg-background-dark h-screen flex flex-col w-full max-w-md mx-auto shadow-2xl overflow-hidden">
             <header className="sticky top-0 z-50 bg-white dark:bg-background-dark border-b border-[#f4f0f0] dark:border-[#3a2a2a] shrink-0">
                 <div className="flex items-center p-4 justify-between">
-                     <button onClick={() => nav.navigate('home')} className="text-[#181111] dark:text-white flex items-center justify-center w-10 h-10 rounded-full hover:bg-gray-100 dark:hover:bg-white/10">
+                     <button onClick={() => navigate('/home')} className="text-[#181111] dark:text-white flex items-center justify-center w-10 h-10 rounded-full hover:bg-gray-100 dark:hover:bg-white/10">
                         <span className="material-symbols-outlined">close</span>
                     </button>
                     <h2 className="text-[#181111] dark:text-white text-lg font-bold leading-tight">Reorder</h2>
@@ -262,12 +283,12 @@ export const ReorderScreen: React.FC<{ nav: NavContextType }> = ({ nav }) => {
                     <div className="flex items-center justify-center p-8">
                         <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
                     </div>
-                ) : orders.length === 0 ? (
+                ) : recentOrders.length === 0 ? (
                     <div className="text-center text-gray-500 py-8">
                         <p>No previous orders to reorder</p>
                     </div>
                 ) : (
-                    orders.map((order, idx) => {
+                    recentOrders.map((order, idx) => {
                         const orderSummary = order.items?.map(i => `${i.quantity}x ${i.name}`).join(', ') || 'Catering Order';
                         
                         return (
@@ -294,24 +315,24 @@ export const ReorderScreen: React.FC<{ nav: NavContextType }> = ({ nav }) => {
                 )}
             </main>
              <div className="p-4 shrink-0">
-                <button onClick={() => nav.navigate('menu')} className="w-full py-4 text-primary font-bold">Browse Full Menu</button>
+                <button onClick={() => navigate('/menu')} className="w-full py-4 text-primary font-bold">Browse Full Menu</button>
              </div>
         </div>
     );
 };
 
-export const ModifyReorderScreen: React.FC<{ nav: NavContextType }> = ({ nav }) => {
-    const order = nav.data?.selectedOrder as GHLOrder | undefined;
-    const deliveryDetails = nav.data?.deliveryDetails;
+export const ModifyReorderScreen: React.FC = () => {
+    const navigate = useNavigate();
+    const { selectedOrder, deliveryDetails, setDeliveryDetails, addToCart, clearCart } = useAppContext();
     
     // Initialize with order items or empty
-    const [items, setItems] = useState(order?.items || []);
+    const [items, setItems] = useState(selectedOrder?.items || []);
     const [date, setDate] = useState(deliveryDetails?.date || '');
     const [time, setTime] = useState(deliveryDetails?.time || '11:30');
     const [address, setAddress] = useState(
         deliveryDetails 
             ? `${deliveryDetails.address}, ${deliveryDetails.city}, ${deliveryDetails.state} ${deliveryDetails.zip}`
-            : order?.deliveryAddress || ''
+            : selectedOrder?.deliveryAddress || ''
     );
 
     const total = items.reduce((sum, item) => sum + (item.price * item.quantity), 0);
@@ -326,32 +347,35 @@ export const ModifyReorderScreen: React.FC<{ nav: NavContextType }> = ({ nav }) 
     };
 
     const handleContinue = () => {
-        // Convert to cart items format
-        const cartItems = items.map(item => ({
-            id: `reorder-${item.name}`,
-            name: item.name,
-            price: item.price,
-            quantity: item.quantity,
-        }));
-
-        nav.setData({
-            ...nav.data,
-            cartItems,
-            deliveryDetails: {
-                ...nav.data?.deliveryDetails,
-                date,
-                time,
-            },
+        // Clear existing cart and add reorder items
+        clearCart();
+        
+        items.forEach(item => {
+            addToCart({
+                id: `reorder-${item.name}`,
+                name: item.name,
+                price: item.price,
+                quantity: item.quantity,
+            });
         });
 
-        nav.navigate('checkout');
+        // Update delivery details with new date/time
+        if (deliveryDetails) {
+            setDeliveryDetails({
+                ...deliveryDetails,
+                date,
+                time,
+            });
+        }
+
+        navigate('/checkout');
     };
 
     return (
         <div className="bg-background-light dark:bg-background-dark h-screen flex flex-col w-full max-w-md mx-auto shadow-2xl overflow-hidden">
             <header className="sticky top-0 z-50 bg-white dark:bg-background-dark border-b border-[#f4f0f0] dark:border-[#3a2a2a] shrink-0">
                 <div className="flex items-center p-4 justify-between">
-                     <button onClick={() => nav.goBack()} className="text-[#181111] dark:text-white flex items-center justify-center w-10 h-10 rounded-full hover:bg-gray-100 dark:hover:bg-white/10">
+                     <button onClick={() => navigate(-1)} className="text-[#181111] dark:text-white flex items-center justify-center w-10 h-10 rounded-full hover:bg-gray-100 dark:hover:bg-white/10">
                         <span className="material-symbols-outlined">arrow_back</span>
                     </button>
                     <h2 className="text-[#181111] dark:text-white text-lg font-bold leading-tight">Modify Reorder</h2>
@@ -428,12 +452,10 @@ export const ModifyReorderScreen: React.FC<{ nav: NavContextType }> = ({ nav }) 
     );
 };
 
-export const LoyaltyScreen: React.FC<{ nav: NavContextType }> = ({ nav }) => {
-    const [orders, setOrders] = useState<GHLOrder[]>([]);
+export const LoyaltyScreen: React.FC = () => {
+    const navigate = useNavigate();
+    const { contactId, cashbackBalance, orders, setOrders } = useAppContext();
     const [isLoading, setIsLoading] = useState(true);
-    
-    const contactId = nav.data?.contactId;
-    const cashbackBalance = nav.data?.cashbackBalance || 0;
 
     useEffect(() => {
         async function fetchOrders() {
@@ -442,9 +464,14 @@ export const LoyaltyScreen: React.FC<{ nav: NavContextType }> = ({ nav }) => {
                 return;
             }
 
+            if (orders.length > 0) {
+                setIsLoading(false);
+                return;
+            }
+
             try {
                 const data = await ghlService.getOrdersByContactId(contactId);
-                setOrders((data || []).slice(0, 10)); // Last 10 orders for history
+                setOrders((data || []).slice(0, 10));
             } catch (error) {
                 console.error('Failed to fetch orders:', error);
             } finally {
@@ -453,13 +480,15 @@ export const LoyaltyScreen: React.FC<{ nav: NavContextType }> = ({ nav }) => {
         }
 
         fetchOrders();
-    }, [contactId]);
+    }, [contactId, orders.length, setOrders]);
+
+    const recentOrders = orders.slice(0, 10);
 
     return (
         <div className="bg-background-light dark:bg-background-dark h-screen flex flex-col w-full max-w-md mx-auto shadow-2xl overflow-hidden">
              <header className="sticky top-0 z-50 bg-white dark:bg-background-dark border-b border-[#f4f0f0] dark:border-[#3a2a2a] shrink-0">
                 <div className="flex items-center p-4 justify-between">
-                     <button onClick={() => nav.goBack()} className="text-[#181111] dark:text-white flex items-center justify-center w-10 h-10 rounded-full hover:bg-gray-100 dark:hover:bg-white/10">
+                     <button onClick={() => navigate(-1)} className="text-[#181111] dark:text-white flex items-center justify-center w-10 h-10 rounded-full hover:bg-gray-100 dark:hover:bg-white/10">
                         <span className="material-symbols-outlined">arrow_back</span>
                     </button>
                     <h2 className="text-[#181111] dark:text-white text-lg font-bold leading-tight">Cashback Rewards</h2>
@@ -502,12 +531,12 @@ export const LoyaltyScreen: React.FC<{ nav: NavContextType }> = ({ nav }) => {
                             <div className="flex items-center justify-center p-4">
                                 <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin"></div>
                             </div>
-                        ) : orders.length === 0 ? (
+                        ) : recentOrders.length === 0 ? (
                             <div className="p-4 text-center text-gray-500 text-sm">
                                 No cashback history yet
                             </div>
                         ) : (
-                            orders.map((order) => {
+                            recentOrders.map((order) => {
                                 const cashbackEarned = order.totalAmount * 0.05;
                                 return (
                                     <div key={order.id} className="p-4 flex justify-between items-center">
@@ -527,12 +556,14 @@ export const LoyaltyScreen: React.FC<{ nav: NavContextType }> = ({ nav }) => {
     );
 };
 
-export const ScheduledOrdersScreen: React.FC<{ nav: NavContextType }> = ({ nav }) => {
+export const ScheduledOrdersScreen: React.FC = () => {
+    const navigate = useNavigate();
+    
     return (
         <div className="bg-background-light dark:bg-background-dark h-screen flex flex-col w-full max-w-md mx-auto shadow-xl overflow-hidden">
              <header className="sticky top-0 z-50 bg-white dark:bg-background-dark border-b border-[#f4f0f0] dark:border-[#3a2a2a] shrink-0">
                 <div className="flex items-center p-4 justify-between">
-                     <button onClick={() => nav.goBack()} className="text-[#181111] dark:text-white flex items-center justify-center w-10 h-10 rounded-full hover:bg-gray-100 dark:hover:bg-white/10">
+                     <button onClick={() => navigate(-1)} className="text-[#181111] dark:text-white flex items-center justify-center w-10 h-10 rounded-full hover:bg-gray-100 dark:hover:bg-white/10">
                         <span className="material-symbols-outlined">arrow_back</span>
                     </button>
                     <h2 className="text-[#181111] dark:text-white text-lg font-bold leading-tight">Scheduled Orders</h2>
@@ -555,15 +586,19 @@ export const ScheduledOrdersScreen: React.FC<{ nav: NavContextType }> = ({ nav }
     );
 };
 
-export const InvoicesScreen: React.FC<{ nav: NavContextType }> = ({ nav }) => {
-    const [orders, setOrders] = useState<GHLOrder[]>([]);
+export const InvoicesScreen: React.FC = () => {
+    const navigate = useNavigate();
+    const { contactId, orders, setOrders } = useAppContext();
     const [isLoading, setIsLoading] = useState(true);
-    
-    const contactId = nav.data?.contactId;
 
     useEffect(() => {
         async function fetchOrders() {
             if (!contactId) {
+                setIsLoading(false);
+                return;
+            }
+
+            if (orders.length > 0) {
                 setIsLoading(false);
                 return;
             }
@@ -579,13 +614,13 @@ export const InvoicesScreen: React.FC<{ nav: NavContextType }> = ({ nav }) => {
         }
 
         fetchOrders();
-    }, [contactId]);
+    }, [contactId, orders.length, setOrders]);
 
     return (
         <div className="bg-background-light dark:bg-background-dark h-screen flex flex-col w-full max-w-md mx-auto shadow-xl overflow-hidden">
              <header className="sticky top-0 z-50 bg-white dark:bg-background-dark border-b border-[#f4f0f0] dark:border-[#3a2a2a] shrink-0">
                 <div className="flex items-center p-4 justify-between">
-                     <button onClick={() => nav.goBack()} className="text-[#181111] dark:text-white flex items-center justify-center w-10 h-10 rounded-full hover:bg-gray-100 dark:hover:bg-white/10">
+                     <button onClick={() => navigate(-1)} className="text-[#181111] dark:text-white flex items-center justify-center w-10 h-10 rounded-full hover:bg-gray-100 dark:hover:bg-white/10">
                         <span className="material-symbols-outlined">arrow_back</span>
                     </button>
                     <h2 className="text-[#181111] dark:text-white text-lg font-bold leading-tight">Invoices</h2>
@@ -627,9 +662,9 @@ export const InvoicesScreen: React.FC<{ nav: NavContextType }> = ({ nav }) => {
     );
 };
 
-export const AddressManagementScreen: React.FC<{ nav: NavContextType }> = ({ nav }) => {
-    const contact = nav.data?.contact as GHLContact | undefined;
-    const deliveryDetails = nav.data?.deliveryDetails;
+export const AddressManagementScreen: React.FC = () => {
+    const navigate = useNavigate();
+    const { contact, deliveryDetails } = useAppContext();
     
     // Get saved address from contact or delivery details
     const savedAddress = contact?.address1 
@@ -642,7 +677,7 @@ export const AddressManagementScreen: React.FC<{ nav: NavContextType }> = ({ nav
         <div className="bg-background-light dark:bg-background-dark h-screen flex flex-col w-full max-w-md mx-auto shadow-xl overflow-hidden">
              <header className="sticky top-0 z-50 bg-white dark:bg-background-dark border-b border-[#f4f0f0] dark:border-[#3a2a2a] shrink-0">
                 <div className="flex items-center p-4 justify-between">
-                     <button onClick={() => nav.goBack()} className="text-[#181111] dark:text-white flex items-center justify-center w-10 h-10 rounded-full hover:bg-gray-100 dark:hover:bg-white/10">
+                     <button onClick={() => navigate(-1)} className="text-[#181111] dark:text-white flex items-center justify-center w-10 h-10 rounded-full hover:bg-gray-100 dark:hover:bg-white/10">
                         <span className="material-symbols-outlined">arrow_back</span>
                     </button>
                     <h2 className="text-[#181111] dark:text-white text-lg font-bold leading-tight">Delivery Addresses</h2>

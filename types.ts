@@ -39,6 +39,9 @@ export type ScreenName =
   | 'debug';
 
 
+// Legacy NavContextType - kept for reference, no longer used
+// Navigation is now handled via React Router hooks (useNavigate, useParams, etc.)
+// Shared state is managed via AppContext (src/context/AppContext.tsx)
 export interface NavContextType {
   currentScreen: ScreenName;
   navigate: (screen: ScreenName) => void;
@@ -105,7 +108,7 @@ export interface CartItem {
   specialInstructions?: string;
 }
 
-// Navigation data passed between screens
+// Navigation data passed between screens (legacy - now in AppContext)
 export interface NavData {
   // Auth flow
   phone?: string;

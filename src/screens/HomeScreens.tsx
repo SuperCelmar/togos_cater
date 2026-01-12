@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { NavContextType, GHLContact, GHLOrder } from '../../types';
+import { useNavigate, useParams, NavLink, useLocation } from 'react-router';
+import { useAppContext, SelectedItem } from '../context/AppContext';
+import { GHLContact, GHLOrder } from '../../types';
 import { getCateringCategories, getCateringItemsByCategory, getCategoryById, formatPrice, getServesText, MenuCategory, MenuItem } from '../lib/menuService';
 import { ghlService } from '../services/ghl';
 
@@ -9,10 +11,9 @@ const PLACEHOLDER_IMAGE = 'https://lh3.googleusercontent.com/aida-public/AB6AXuC
 /**
  * Get display name from contact data
  */
-function getDisplayName(contact?: GHLContact): string {
+function getDisplayName(contact?: GHLContact | null): string {
   if (!contact) return 'Guest';
   
-  // Try company name first, then full name, then first name
   if (contact.companyName) return contact.companyName;
   if (contact.name) return contact.name;
   if (contact.firstName && contact.lastName) return `${contact.firstName} ${contact.lastName}`;
@@ -25,7 +26,7 @@ function getDisplayName(contact?: GHLContact): string {
 /**
  * Get contact info string (name + phone)
  */
-function getContactInfo(contact?: GHLContact): string {
+function getContactInfo(contact?: GHLContact | null): string {
   if (!contact) return '';
   
   const parts: string[] = [];
@@ -43,13 +44,12 @@ function getContactInfo(contact?: GHLContact): string {
   return parts.join(' • ');
 }
 
-export const HomeScreen: React.FC<{ nav: NavContextType }> = ({ nav }) => {
+export const HomeScreen: React.FC = () => {
+  const navigate = useNavigate();
+  const { contact, contactId, cashbackBalance } = useAppContext();
   const [lastOrder, setLastOrder] = useState<GHLOrder | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   
-  const contact = nav.data?.contact as GHLContact | undefined;
-  const contactId = nav.data?.contactId;
-  const cashbackBalance = nav.data?.cashbackBalance || 0;
   const displayName = getDisplayName(contact);
 
   useEffect(() => {
@@ -62,7 +62,6 @@ export const HomeScreen: React.FC<{ nav: NavContextType }> = ({ nav }) => {
       try {
         const orders = await ghlService.getOrdersByContactId(contactId);
         if (orders && orders.length > 0) {
-          // Get the most recent order
           setLastOrder(orders[0]);
         }
       } catch (error) {
@@ -82,7 +81,7 @@ export const HomeScreen: React.FC<{ nav: NavContextType }> = ({ nav }) => {
             <p className="text-xs text-gray-500 font-bold uppercase tracking-wider">Welcome back</p>
             <h2 className="text-[#181111] dark:text-white text-lg font-extrabold leading-tight">{displayName}</h2>
         </div>
-        <div onClick={() => nav.navigate('account')} className="w-10 h-10 rounded-full bg-primary overflow-hidden cursor-pointer border-2 border-white dark:border-gray-600 flex items-center justify-center">
+        <div onClick={() => navigate('/account')} className="w-10 h-10 rounded-full bg-primary overflow-hidden cursor-pointer border-2 border-white dark:border-gray-600 flex items-center justify-center">
              <span className="text-white font-bold text-lg">{displayName.charAt(0).toUpperCase()}</span>
         </div>
       </header>
@@ -111,7 +110,7 @@ export const HomeScreen: React.FC<{ nav: NavContextType }> = ({ nav }) => {
                     </p>
                  </div>
                  <button 
-                   onClick={() => nav.navigate(lastOrder ? 'modify_reorder' : 'menu')} 
+                   onClick={() => navigate(lastOrder ? '/reorder/modify' : '/menu')} 
                    className="bg-primary hover:bg-primary-hover text-white px-5 py-2.5 rounded-xl font-bold text-sm shadow-lg shadow-primary/20 active:scale-95 transition-all"
                  >
                     {lastOrder ? 'Reorder' : 'Start Order'}
@@ -122,12 +121,12 @@ export const HomeScreen: React.FC<{ nav: NavContextType }> = ({ nav }) => {
         
         {/* Quick Stats */}
         <div className="px-4 grid grid-cols-2 gap-3 mb-6">
-            <div onClick={() => nav.navigate('loyalty')} className="bg-orange-50 dark:bg-orange-900/10 p-4 rounded-xl border border-orange-100 dark:border-orange-900/20 cursor-pointer">
+            <div onClick={() => navigate('/account/loyalty')} className="bg-orange-50 dark:bg-orange-900/10 p-4 rounded-xl border border-orange-100 dark:border-orange-900/20 cursor-pointer">
                 <span className="material-symbols-outlined text-primary mb-2">stars</span>
                 <p className="text-xs text-gray-500 font-bold uppercase tracking-wider">Cashback</p>
                 <p className="text-lg font-black text-primary">{formatPrice(cashbackBalance)}</p>
             </div>
-             <div onClick={() => nav.navigate('scheduled')} className="bg-blue-50 dark:bg-blue-900/10 p-4 rounded-xl border border-blue-100 dark:border-blue-900/20 cursor-pointer">
+             <div onClick={() => navigate('/account/scheduled')} className="bg-blue-50 dark:bg-blue-900/10 p-4 rounded-xl border border-blue-100 dark:border-blue-900/20 cursor-pointer">
                 <span className="material-symbols-outlined text-blue-600 mb-2">event</span>
                 <p className="text-xs text-gray-500 font-bold uppercase tracking-wider">Next Order</p>
                 <p className="text-lg font-black text-blue-900 dark:text-blue-100">--</p>
@@ -136,24 +135,24 @@ export const HomeScreen: React.FC<{ nav: NavContextType }> = ({ nav }) => {
 
         {/* Browse Menu CTA */}
         <div className="px-4">
-             <div onClick={() => nav.navigate('menu')} className="w-full bg-gray-900 dark:bg-white text-white dark:text-black rounded-xl p-6 text-center cursor-pointer shadow-xl">
+             <div onClick={() => navigate('/menu')} className="w-full bg-gray-900 dark:bg-white text-white dark:text-black rounded-xl p-6 text-center cursor-pointer shadow-xl">
                 <h3 className="text-xl font-black mb-1">Need something different?</h3>
                 <p className="opacity-80 mb-4 text-sm">Explore our full catering menu for your next event.</p>
                 <span className="inline-block px-4 py-2 bg-white/20 dark:bg-black/10 rounded-lg font-bold text-sm">Browse Menu</span>
              </div>
         </div>
       </main>
-      <BottomNav nav={nav} active="home" />
+      <BottomNav />
     </div>
   );
 };
 
-export const MenuScreen: React.FC<{ nav: NavContextType }> = ({ nav }) => {
+export const MenuScreen: React.FC = () => {
+    const navigate = useNavigate();
+    const { guestCount } = useAppContext();
     const [categories, setCategories] = useState<MenuCategory[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
-    
-    const guestCount = nav.data?.guestCount;
 
     useEffect(() => {
         async function fetchCategories() {
@@ -172,12 +171,7 @@ export const MenuScreen: React.FC<{ nav: NavContextType }> = ({ nav }) => {
     }, []);
 
     const handleCategoryClick = (category: MenuCategory) => {
-        nav.setData({
-            ...nav.data,
-            categoryId: category.id,
-            categoryName: category.name,
-        });
-        nav.navigate('category_detail');
+        navigate(`/menu/category/${category.id}`);
     };
 
     return (
@@ -190,7 +184,7 @@ export const MenuScreen: React.FC<{ nav: NavContextType }> = ({ nav }) => {
                             <p className="text-xs text-primary font-medium">Building order for {guestCount} people</p>
                         )}
                     </div>
-                    <div onClick={() => nav.navigate('cart')} className="flex w-12 items-center justify-end cursor-pointer">
+                    <div onClick={() => navigate('/cart')} className="flex w-12 items-center justify-end cursor-pointer">
                         <span className="material-symbols-outlined">shopping_bag</span>
                     </div>
                 </div>
@@ -236,19 +230,20 @@ export const MenuScreen: React.FC<{ nav: NavContextType }> = ({ nav }) => {
                 )}
                 <div className="h-20"></div>
             </main>
-            <BottomNav nav={nav} active="menu" />
+            <BottomNav />
         </div>
     );
 };
 
-export const CategoryDetailScreen: React.FC<{ nav: NavContextType }> = ({ nav }) => {
+export const CategoryDetailScreen: React.FC = () => {
+    const navigate = useNavigate();
+    const { categoryId } = useParams<{ categoryId: string }>();
+    const { guestCount } = useAppContext();
+    
     const [items, setItems] = useState<MenuItem[]>([]);
-    const [categoryName, setCategoryName] = useState(nav.data?.categoryName || 'Category');
+    const [categoryName, setCategoryName] = useState('Category');
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
-    
-    const categoryId = nav.data?.categoryId;
-    const guestCount = nav.data?.guestCount;
 
     useEffect(() => {
         async function fetchItems() {
@@ -259,12 +254,10 @@ export const CategoryDetailScreen: React.FC<{ nav: NavContextType }> = ({ nav })
             }
 
             try {
-                // Fetch category name if not already set
-                if (!nav.data?.categoryName) {
-                    const category = await getCategoryById(categoryId);
-                    if (category) {
-                        setCategoryName(category.name);
-                    }
+                // Fetch category name
+                const category = await getCategoryById(categoryId);
+                if (category) {
+                    setCategoryName(category.name);
                 }
 
                 const data = await getCateringItemsByCategory(categoryId);
@@ -278,29 +271,30 @@ export const CategoryDetailScreen: React.FC<{ nav: NavContextType }> = ({ nav })
         }
 
         fetchItems();
-    }, [categoryId, nav.data?.categoryName]);
+    }, [categoryId]);
 
     const handleItemClick = (item: MenuItem) => {
-        nav.setData({
-            ...nav.data,
-            selectedItem: {
-                id: item.id,
-                name: item.name,
-                price: item.price,
-                description: item.description,
-                image_url: item.image_url,
-                serves_min: item.serves_min,
-                serves_max: item.serves_max,
-            },
+        // Pass item data via route state
+        navigate(`/menu/item/${item.id}`, { 
+            state: { 
+                selectedItem: {
+                    id: item.id,
+                    name: item.name,
+                    price: item.price,
+                    description: item.description,
+                    image_url: item.image_url,
+                    serves_min: item.serves_min,
+                    serves_max: item.serves_max,
+                } as SelectedItem
+            } 
         });
-        nav.navigate('item_detail');
     };
 
     return (
         <div className="bg-background-light dark:bg-background-dark h-screen flex flex-col w-full max-w-md mx-auto shadow-2xl overflow-hidden">
             <header className="sticky top-0 z-50 bg-white dark:bg-background-dark border-b border-[#f4f0f0] dark:border-[#3a2a2a] shrink-0">
                 <div className="flex items-center p-4 justify-between">
-                    <button onClick={() => nav.goBack()} className="text-[#181111] dark:text-white flex items-center justify-center w-10 h-10 rounded-full hover:bg-gray-100 dark:hover:bg-white/10">
+                    <button onClick={() => navigate(-1)} className="text-[#181111] dark:text-white flex items-center justify-center w-10 h-10 rounded-full hover:bg-gray-100 dark:hover:bg-white/10">
                         <span className="material-symbols-outlined">arrow_back</span>
                     </button>
                     <div className="flex-1 text-center">
@@ -309,7 +303,7 @@ export const CategoryDetailScreen: React.FC<{ nav: NavContextType }> = ({ nav })
                             <p className="text-xs text-primary font-medium">For {guestCount} people</p>
                         )}
                     </div>
-                    <div onClick={() => nav.navigate('cart')} className="flex w-10 items-center justify-center cursor-pointer">
+                    <div onClick={() => navigate('/cart')} className="flex w-10 items-center justify-center cursor-pointer">
                         <span className="material-symbols-outlined">shopping_bag</span>
                     </div>
                 </div>
@@ -324,20 +318,22 @@ export const CategoryDetailScreen: React.FC<{ nav: NavContextType }> = ({ nav })
                 ) : items.length === 0 ? (
                     <div className="p-4 text-center text-gray-500">No items in this category.</div>
                 ) : (
-                    items.map((item) => (
+                    items.map((item, index) => item ? (
                         <div 
-                            key={item.id} 
+                            key={item.id || `item-${index}`} 
                             onClick={() => handleItemClick(item)} 
                             className="bg-white dark:bg-[#2a1a1a] rounded-xl overflow-hidden shadow-sm cursor-pointer"
                         >
-                            <div 
-                                className="h-40 w-full bg-cover bg-center bg-gray-200" 
-                                style={{ backgroundImage: `url("${item.image_url || PLACEHOLDER_IMAGE}")` }}
-                            ></div>
+                            <img 
+                                src={item.image_url || PLACEHOLDER_IMAGE}
+                                alt={item.name || 'Menu item'}
+                                onError={(e) => { e.currentTarget.src = PLACEHOLDER_IMAGE; }}
+                                className="h-40 w-full object-cover bg-gray-200"
+                            />
                             <div className="p-4">
                                 <div className="flex justify-between items-start mb-2">
-                                    <h3 className="text-lg font-bold text-[#181111] dark:text-white">{item.name}</h3>
-                                    <span className="font-bold text-primary">{formatPrice(item.price)}</span>
+                                    <h3 className="text-lg font-bold text-[#181111] dark:text-white">{item.name || 'Unnamed Item'}</h3>
+                                    <span className="font-bold text-primary">{formatPrice(item.price || 0)}</span>
                                 </div>
                                 {(item.serves_min || item.serves_max) && (
                                     <p className="text-sm text-gray-500 mb-2">
@@ -349,18 +345,18 @@ export const CategoryDetailScreen: React.FC<{ nav: NavContextType }> = ({ nav })
                                 )}
                             </div>
                         </div>
-                    ))
+                    ) : null)
                 )}
                 <div className="h-20"></div>
             </main>
-            <BottomNav nav={nav} active="menu" />
+            <BottomNav />
         </div>
     );
 };
 
-export const AccountScreen: React.FC<{ nav: NavContextType }> = ({ nav }) => {
-    const contact = nav.data?.contact as GHLContact | undefined;
-    const cashbackBalance = nav.data?.cashbackBalance || 0;
+export const AccountScreen: React.FC = () => {
+    const navigate = useNavigate();
+    const { contact, cashbackBalance } = useAppContext();
     
     const displayName = getDisplayName(contact);
     const contactInfo = getContactInfo(contact);
@@ -384,7 +380,7 @@ export const AccountScreen: React.FC<{ nav: NavContextType }> = ({ nav }) => {
                 </section>
 
                 {/* Cashback Section */}
-                <section onClick={() => nav.navigate('loyalty')} className="bg-primary text-white rounded-xl p-6 shadow-lg shadow-primary/20 relative overflow-hidden cursor-pointer">
+                <section onClick={() => navigate('/account/loyalty')} className="bg-primary text-white rounded-xl p-6 shadow-lg shadow-primary/20 relative overflow-hidden cursor-pointer">
                     <div className="relative z-10">
                         <p className="opacity-80 text-sm font-medium mb-1">Cashback Balance</p>
                         <h3 className="text-3xl font-extrabold tracking-tight">{formatPrice(cashbackBalance)}</h3>
@@ -397,7 +393,7 @@ export const AccountScreen: React.FC<{ nav: NavContextType }> = ({ nav }) => {
                 <div className="space-y-2">
                     <h3 className="font-bold text-lg px-1">Settings</h3>
                     <div className="bg-white dark:bg-[#2a1a1a] rounded-xl overflow-hidden divide-y divide-gray-100 dark:divide-gray-800">
-                        <button onClick={() => nav.navigate('addresses')} className="w-full flex items-center justify-between p-4 hover:bg-gray-50 dark:hover:bg-white/5 text-left">
+                        <button onClick={() => navigate('/account/addresses')} className="w-full flex items-center justify-between p-4 hover:bg-gray-50 dark:hover:bg-white/5 text-left">
                             <span className="font-medium">Delivery Addresses</span>
                             <span className="material-symbols-outlined text-gray-400">chevron_right</span>
                         </button>
@@ -405,7 +401,7 @@ export const AccountScreen: React.FC<{ nav: NavContextType }> = ({ nav }) => {
                             <span className="font-medium">Payment Methods</span>
                             <span className="material-symbols-outlined text-gray-400">chevron_right</span>
                         </button>
-                         <button onClick={() => nav.navigate('scheduled')} className="w-full flex items-center justify-between p-4 hover:bg-gray-50 dark:hover:bg-white/5 text-left">
+                         <button onClick={() => navigate('/account/scheduled')} className="w-full flex items-center justify-between p-4 hover:bg-gray-50 dark:hover:bg-white/5 text-left">
                             <span className="font-medium">Scheduled Orders</span>
                             <span className="material-symbols-outlined text-gray-400">chevron_right</span>
                         </button>
@@ -427,28 +423,53 @@ export const AccountScreen: React.FC<{ nav: NavContextType }> = ({ nav }) => {
                     </div>
                 </div>
             </main>
-            <BottomNav nav={nav} active="account" />
+            <BottomNav />
         </div>
     );
 };
 
-export const BottomNav: React.FC<{ nav: NavContextType, active: string }> = ({ nav, active }) => (
-  <nav className="fixed bottom-0 left-0 right-0 max-w-md mx-auto bg-white dark:bg-background-dark border-t border-gray-200 dark:border-gray-800 flex justify-around items-center h-20 px-2 pb-4 z-50">
-    <div onClick={() => nav.navigate('home')} className={`flex flex-col items-center cursor-pointer ${active === 'home' ? 'text-primary' : 'text-gray-400 dark:text-gray-500'}`}>
-      <span className="material-symbols-outlined">home</span>
-      <span className="text-[10px] font-bold mt-1">Home</span>
-    </div>
-    <div onClick={() => nav.navigate('menu')} className={`flex flex-col items-center cursor-pointer ${active === 'menu' ? 'text-primary' : 'text-gray-400 dark:text-gray-500'}`}>
-      <span className="material-symbols-outlined">restaurant_menu</span>
-      <span className="text-[10px] font-medium mt-1">Menu</span>
-    </div>
-    <div onClick={() => nav.navigate('orders')} className={`flex flex-col items-center cursor-pointer ${active === 'orders' ? 'text-primary' : 'text-gray-400 dark:text-gray-500'}`}>
-      <span className="material-symbols-outlined">receipt_long</span>
-      <span className="text-[10px] font-medium mt-1">My Orders</span>
-    </div>
-    <div onClick={() => nav.navigate('account')} className={`flex flex-col items-center cursor-pointer ${active === 'account' ? 'text-primary' : 'text-gray-400 dark:text-gray-500'}`}>
-      <span className="material-symbols-outlined">person</span>
-      <span className="text-[10px] font-medium mt-1">Account</span>
-    </div>
-  </nav>
-);
+export const BottomNav: React.FC = () => {
+  const location = useLocation();
+  
+  // Helper to check if current path matches
+  const isActive = (path: string) => {
+    if (path === '/home') return location.pathname === '/home';
+    if (path === '/menu') return location.pathname.startsWith('/menu');
+    if (path === '/orders') return location.pathname.startsWith('/orders');
+    if (path === '/account') return location.pathname.startsWith('/account');
+    return false;
+  };
+  
+  return (
+    <nav className="fixed bottom-0 left-0 right-0 max-w-md mx-auto bg-white dark:bg-background-dark border-t border-gray-200 dark:border-gray-800 flex justify-around items-center h-20 px-2 pb-4 z-50">
+      <NavLink 
+        to="/home" 
+        className={`flex flex-col items-center cursor-pointer ${isActive('/home') ? 'text-primary' : 'text-gray-400 dark:text-gray-500'}`}
+      >
+        <span className="material-symbols-outlined">home</span>
+        <span className="text-[10px] font-bold mt-1">Home</span>
+      </NavLink>
+      <NavLink 
+        to="/menu" 
+        className={`flex flex-col items-center cursor-pointer ${isActive('/menu') ? 'text-primary' : 'text-gray-400 dark:text-gray-500'}`}
+      >
+        <span className="material-symbols-outlined">restaurant_menu</span>
+        <span className="text-[10px] font-medium mt-1">Menu</span>
+      </NavLink>
+      <NavLink 
+        to="/orders" 
+        className={`flex flex-col items-center cursor-pointer ${isActive('/orders') ? 'text-primary' : 'text-gray-400 dark:text-gray-500'}`}
+      >
+        <span className="material-symbols-outlined">receipt_long</span>
+        <span className="text-[10px] font-medium mt-1">My Orders</span>
+      </NavLink>
+      <NavLink 
+        to="/account" 
+        className={`flex flex-col items-center cursor-pointer ${isActive('/account') ? 'text-primary' : 'text-gray-400 dark:text-gray-500'}`}
+      >
+        <span className="material-symbols-outlined">person</span>
+        <span className="text-[10px] font-medium mt-1">Account</span>
+      </NavLink>
+    </nav>
+  );
+};
