@@ -1,8 +1,19 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback } from 'react';
 import { GHLContact, GHLOrder, DeliveryDetails, CartItem } from '../../types';
-import { getContactId, getSessionId, clearContactSession, saveContactSession } from '../lib/storage';
+import { EnhancedCateringRecommendation } from '../lib/cateringRecommendations';
+import { 
+  getContactId, 
+  getSessionId, 
+  clearContactSession, 
+  saveContactSession,
+  getDeliveryAddress,
+  saveDeliveryAddress,
+  clearDeliveryAddress
+} from '../lib/storage';
 import { supabase } from '../lib/supabase';
 import { ghlService } from '../services/ghl';
+
+// ... (rest of imports and interfaces)
 
 // Selected menu item type (passed via route state or fetched)
 export interface SelectedItem {
@@ -60,6 +71,7 @@ export interface AppContextValue extends AppState {
   updateCartItemQuantity: (itemId: string, quantity: number) => void;
   removeFromCart: (itemId: string) => void;
   clearCart: () => void;
+  populateCartFromRecommendation: (recommendation: EnhancedCateringRecommendation) => void;
   
   // Cashback actions
   setCashbackBalance: (balance: number) => void;
@@ -106,6 +118,7 @@ export const AppContextProvider: React.FC<AppContextProviderProps> = ({ children
       try {
         const storedContactId = getContactId();
         const storedSessionId = getSessionId();
+        const storedAddress = getDeliveryAddress();
 
         if (storedContactId && storedSessionId) {
           // Verify current Supabase session matches stored session ID
@@ -122,6 +135,14 @@ export const AppContextProvider: React.FC<AppContextProviderProps> = ({ children
                 ...prev,
                 contactId: storedContactId,
                 contact,
+                deliveryDetails: storedAddress ? {
+                  address: storedAddress.address,
+                  city: storedAddress.city,
+                  state: storedAddress.state,
+                  zip: storedAddress.zip,
+                  date: prev.deliveryDetails?.date || '',
+                  time: prev.deliveryDetails?.time || '11:30',
+                } : prev.deliveryDetails,
                 isSessionLoading: false,
               }));
               return;
@@ -131,6 +152,14 @@ export const AppContextProvider: React.FC<AppContextProviderProps> = ({ children
               setState(prev => ({
                 ...prev,
                 contactId: storedContactId,
+                deliveryDetails: storedAddress ? {
+                  address: storedAddress.address,
+                  city: storedAddress.city,
+                  state: storedAddress.state,
+                  zip: storedAddress.zip,
+                  date: prev.deliveryDetails?.date || '',
+                  time: prev.deliveryDetails?.time || '11:30',
+                } : prev.deliveryDetails,
                 isSessionLoading: false,
               }));
               return;
@@ -139,6 +168,7 @@ export const AppContextProvider: React.FC<AppContextProviderProps> = ({ children
             // Session mismatch - clear localStorage
             console.log('[AppContext] Session mismatch, clearing stored session');
             clearContactSession();
+            clearDeliveryAddress();
           }
         } else if (storedContactId && !storedSessionId) {
           // Legacy case: contact ID exists but no session ID
@@ -177,45 +207,76 @@ export const AppContextProvider: React.FC<AppContextProviderProps> = ({ children
   }, []);
 
   // Session actions
-  const setContactSession = (contactId: string, contact: GHLContact | null, sessionId?: string) => {
+  const setContactSession = useCallback((contactId: string, contact: GHLContact | null, sessionId?: string) => {
     saveContactSession(contactId, sessionId);
-    setState(prev => ({ ...prev, contactId, contact }));
-  };
+    
+    // If contact has address info, persist it
+    if (contact?.address1) {
+      saveDeliveryAddress({
+        address: contact.address1,
+        city: contact.city || '',
+        state: contact.state || '',
+        zip: contact.postalCode || '',
+      });
+    }
+    
+    setState(prev => ({ 
+      ...prev, 
+      contactId, 
+      contact,
+      deliveryDetails: (contact?.address1 && !prev.deliveryDetails?.address) ? {
+        address: contact.address1,
+        city: contact.city || '',
+        state: contact.state || '',
+        zip: contact.postalCode || '',
+        date: prev.deliveryDetails?.date || '',
+        time: prev.deliveryDetails?.time || '11:30',
+      } : prev.deliveryDetails
+    }));
+  }, []);
 
-  const clearSession = () => {
+  const clearSession = useCallback(() => {
     clearContactSession();
+    clearDeliveryAddress();
     setState(prev => ({
       ...prev,
       contactId: null,
       contact: null,
       phone: null,
       email: null,
+      deliveryDetails: null,
       cartItems: [],
       orders: [],
       selectedOrder: null,
     }));
-  };
+  }, []);
 
   // Auth actions
-  const setPhone = (phone: string) => {
+  const setPhone = useCallback((phone: string) => {
     setState(prev => ({ ...prev, phone }));
-  };
+  }, []);
 
-  const setEmail = (email: string) => {
+  const setEmail = useCallback((email: string) => {
     setState(prev => ({ ...prev, email }));
-  };
+  }, []);
 
   // Order flow actions
-  const setGuestCount = (guestCount: number) => {
+  const setGuestCount = useCallback((guestCount: number) => {
     setState(prev => ({ ...prev, guestCount }));
-  };
+  }, []);
 
-  const setDeliveryDetails = (deliveryDetails: DeliveryDetails) => {
+  const setDeliveryDetails = useCallback((deliveryDetails: DeliveryDetails) => {
+    saveDeliveryAddress({
+      address: deliveryDetails.address,
+      city: deliveryDetails.city,
+      state: deliveryDetails.state,
+      zip: deliveryDetails.zip,
+    });
     setState(prev => ({ ...prev, deliveryDetails }));
-  };
+  }, []);
 
   // Cart actions
-  const addToCart = (item: CartItem) => {
+  const addToCart = useCallback((item: CartItem) => {
     setState(prev => {
       const existingIndex = prev.cartItems.findIndex(i => i.id === item.id);
       
@@ -233,9 +294,9 @@ export const AppContextProvider: React.FC<AppContextProviderProps> = ({ children
         return { ...prev, cartItems: [...prev.cartItems, item] };
       }
     });
-  };
+  }, []);
 
-  const updateCartItemQuantity = (itemId: string, quantity: number) => {
+  const updateCartItemQuantity = useCallback((itemId: string, quantity: number) => {
     setState(prev => {
       if (quantity <= 0) {
         return { ...prev, cartItems: prev.cartItems.filter(i => i.id !== itemId) };
@@ -247,32 +308,44 @@ export const AppContextProvider: React.FC<AppContextProviderProps> = ({ children
         ),
       };
     });
-  };
+  }, []);
 
-  const removeFromCart = (itemId: string) => {
+  const removeFromCart = useCallback((itemId: string) => {
     setState(prev => ({
       ...prev,
       cartItems: prev.cartItems.filter(i => i.id !== itemId),
     }));
-  };
+  }, []);
 
-  const clearCart = () => {
+  const clearCart = useCallback(() => {
     setState(prev => ({ ...prev, cartItems: [] }));
-  };
+  }, []);
+
+  const populateCartFromRecommendation = useCallback((recommendation: EnhancedCateringRecommendation) => {
+    const newCartItems: CartItem[] = recommendation.items.map(item => ({
+      id: item.menuItem.id,
+      name: item.menuItem.name,
+      price: item.menuItem.price,
+      quantity: item.quantity,
+      image_url: item.menuItem.image_url || undefined,
+    }));
+
+    setState(prev => ({ ...prev, cartItems: newCartItems }));
+  }, []);
 
   // Cashback actions
-  const setCashbackBalance = (cashbackBalance: number) => {
+  const setCashbackBalance = useCallback((cashbackBalance: number) => {
     setState(prev => ({ ...prev, cashbackBalance }));
-  };
+  }, []);
 
   // Order actions
-  const setOrders = (orders: GHLOrder[]) => {
+  const setOrders = useCallback((orders: GHLOrder[]) => {
     setState(prev => ({ ...prev, orders }));
-  };
+  }, []);
 
-  const setSelectedOrder = (selectedOrder: GHLOrder | null) => {
+  const setSelectedOrder = useCallback((selectedOrder: GHLOrder | null) => {
     setState(prev => ({ ...prev, selectedOrder }));
-  };
+  }, []);
 
   const value: AppContextValue = {
     ...state,
@@ -286,6 +359,7 @@ export const AppContextProvider: React.FC<AppContextProviderProps> = ({ children
     updateCartItemQuantity,
     removeFromCart,
     clearCart,
+    populateCartFromRecommendation,
     setCashbackBalance,
     setOrders,
     setSelectedOrder,

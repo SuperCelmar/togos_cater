@@ -103,6 +103,24 @@ export async function getCateringCategories(): Promise<MenuCategory[]> {
 }
 
 /**
+ * Fetch all catering items across all categories
+ */
+export async function getAllCateringItems(): Promise<MenuItem[]> {
+  const { data, error } = await supabase
+    .from('menu_items')
+    .select('*')
+    .eq('is_catering_item', true)
+    .order('name', { ascending: true });
+
+  if (error) {
+    console.error('Error fetching all catering items:', error);
+    throw error;
+  }
+
+  return data || [];
+}
+
+/**
  * Fetch all catering items for a specific category
  */
 export async function getCateringItemsByCategory(categoryId: string): Promise<MenuItem[]> {
@@ -155,6 +173,25 @@ export async function getCategoryById(categoryId: string): Promise<MenuCategory 
   }
 
   return data;
+}
+
+/**
+ * Get category by slug (lowercased name with hyphens)
+ */
+export async function getCategoryBySlug(slug: string): Promise<MenuCategory | null> {
+  const { data: categories, error } = await supabase
+    .from('menu_categories')
+    .select('*')
+    .eq('is_catering_category', true);
+
+  if (error) {
+    console.error('Error fetching categories for slug matching:', error);
+    return null;
+  }
+
+  return categories?.find(cat => 
+    cat.name.trim().toLowerCase().replace(/\s+/g, '-') === slug.toLowerCase()
+  ) || null;
 }
 
 /**

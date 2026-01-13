@@ -1,6 +1,129 @@
 # Changelog
 
+## 2026-01-12 (Order & Invoice Integration - Sequential Flow)
+
+### Enhanced - Sequential Invoice & Opportunity Creation
+- Refactored order creation flow to perform two sequential calls to n8n: `POST /invoices` followed by `POST /opportunities`.
+- Renamed `ghlService.createOrder()` to `ghlService.createInvoice()` and added `ghlService.createOpportunity()`.
+- Updated `CheckoutScreen` to implement the sequential creation logic, ensuring opportunities are linked to invoices.
+- Added a dedicated "Test Sequential Order ($900.41)" button to the `ConnectionTester` debug panel.
+- Configured the test order with specific items, tax, and delivery fees to reach the exact total of $900.41 as requested.
+- Updated debug logs to show step-by-step progress of the sequential creation flow.
+
+---
+
+## 2026-01-12 (Order & Invoice Integration)
+
+### Added - Order Creation & GHL Invoice/Opportunity Flow
+- Implemented `ghlService.createOrder()` to trigger n8n workflows for creating GoHighLevel Invoices and Opportunities.
+- Added state management for `paymentMethod` and `invoiceCompanyName` to `CheckoutScreen`.
+- Updated `CheckoutScreen` to send complete order payload (items, totals, payment info, delivery details) to n8n on order completion.
+- Added "Test Create Order" button to `ConnectionTester` debug panel to verify n8n connection with sample order data.
+- Improved address sync logic during checkout to ensure contact address is updated before order creation.
+
+### Files Modified
+- `src/services/ghl.ts` - Added `createOrder` method.
+- `src/screens/OrderScreens.tsx` - Enhanced `CheckoutScreen` with payment state and order creation logic.
+- `src/components/Debug/ConnectionTester.tsx` - Added order creation test functionality.
+
+---
+
+## 2026-01-12 (Cart UI Enhancements)
+
+### Enhanced - Item Images in Cart and Order Success
+- Updated `CartScreen` in `src/screens/OrderScreens.tsx` to display item thumbnails (16x16) on the left side of each cart item.
+- Updated `OrderSuccessScreen` in `src/screens/OrderScreens.tsx` to display item thumbnails (10x10) in the order summary list.
+- Implemented `PLACEHOLDER_IMAGE` fallback for items without images or when image loading fails.
+- Adjusted layout spacing and typography to accommodate thumbnails while maintaining a clean, modern look.
+
+### Files Modified
+- `src/screens/OrderScreens.tsx` - Added thumbnails to `CartScreen` and `OrderSuccessScreen`.
+
+---
+
+## 2026-01-12 (Delivery Address UX Improvements)
+
+### Fixed - Auto-Fill Message Hides on User Edit
+- Added `userHasEdited` state to `DeliverySetupScreen` to track when user modifies address fields
+- Updated `wasAutoFilled` condition to only show "Address auto-filled from your profile" message when address was actually auto-filled AND user hasn't started editing
+- Message now disappears as soon as user types in any address field (street, city, state, or ZIP)
+
+### Enhanced - Save Address to GHL on "Build My Order"
+- Added `contactId` to `DeliverySetupScreen` context destructuring
+- Integrated `ghlService.updateContactAddress()` call in `handleContinue` to sync delivery address to Go High Level when user clicks "Build My Order"
+- Address save is non-blocking - flow continues even if GHL save fails (error is logged)
+- Structured address data (street, city, state, postalCode) sent to GHL for proper field mapping
+
+### Files Modified
+- `src/screens/AuthScreens.tsx` - Updated `DeliverySetupScreen` with user edit tracking and GHL address save
+
+---
+
+## 2026-01-12 (Enhanced Catering Recommendations)
+
+### Enhanced - Smart Cart Auto-Population from Recommendations
+- Created `getRecommendationWithItems()` in `src/lib/cateringRecommendations.ts` that fetches real menu items from Supabase
+- Added `EnhancedRecommendationItem` and `EnhancedCateringRecommendation` interfaces for typed recommendations with actual `MenuItem` objects
+- Implemented intelligent name matching with fallback patterns to match recommendation names to Supabase items
+- Added `getAllCateringItems()` function to `src/lib/menuService.ts` for fetching all catering items at once
+
+### Enhanced - Automatic Cart Population on Delivery Setup
+- Added `populateCartFromRecommendation()` method to `AppContext` for bulk cart population from recommendations
+- Modified `DeliverySetupScreen` to auto-populate cart when:
+  - Cart is empty AND guest count is set
+  - Fetches enhanced recommendations with real menu items
+  - Automatically navigates to `/cart` instead of `/menu` after populating
+- Added loading state with "Building Your Order..." spinner during recommendation fetch
+- Dynamic button text: "Build My Order" when cart is empty, "Continue to Menu" when cart has items
+
+### Enhanced - Cart Indicators on Category Pages
+- Updated `CategoryDetailScreen` to show cart quantity badges on menu items
+- Items in cart now display:
+  - Orange ring/border highlight
+  - Quantity badge on the item image (top-right corner)
+  - "X in cart" text label below the serves info
+- Added cart badge to header shopping bag icon showing total items in cart
+
+### Files Modified
+- `src/lib/cateringRecommendations.ts` - Added enhanced recommendation engine with Supabase integration
+- `src/lib/menuService.ts` - Added `getAllCateringItems()` function
+- `src/context/AppContext.tsx` - Added `populateCartFromRecommendation()` method
+- `src/screens/AuthScreens.tsx` - Updated `DeliverySetupScreen` with auto-population logic
+- `src/screens/HomeScreens.tsx` - Added cart indicators to `CategoryDetailScreen`
+
+---
+
+## 2026-01-12 (Late Night Update - Part 3)
+
+### Enhanced - Address Persistence to Local Storage
+- Implemented persistent storage for delivery address details in `src/lib/storage.ts`.
+- Added `saveDeliveryAddress`, `getDeliveryAddress`, and `clearDeliveryAddress` utility functions.
+- Updated `AppContextProvider` in `src/context/AppContext.tsx` to:
+  - Automatically save contact address to local storage when a session is established.
+  - Persist manually entered delivery details to local storage.
+  - Initialize `deliveryDetails` state from local storage on app startup.
+  - Clear stored address on session logout.
+- Enhanced `DeliverySetupScreen` in `src/screens/AuthScreens.tsx` to pre-fill fields using the cached address from local storage.
+- Improved "Address auto-filled" notification logic to show when fields are populated from either GHL profile or local storage.
+
+## 2026-01-12 (Late Night Update - Part 2)
+
+### Fixed - Category Item Cards UI Refactor
+- Refactored `CategoryDetailScreen` in `src/screens/HomeScreens.tsx` to use a horizontal "row card" layout instead of vertical cards.
+- Fixed the issue where menu items appeared as "thin black lines" by ensuring fixed dimensions for images (`w-24 h-24`) and flexible text containers.
+- Enhanced item metadata display with smaller, better-spaced typography (Name, Price, Serves, Description).
+- Added a chevron icon to each row to indicate interactivity.
+- Maintained existing `onError` fallbacks for images and null-safety for item data.
+
 ## 2026-01-12 (Late Night Update)
+
+### SEO-Friendly Category URLs
+- Modified category routing to use lowercased category names (slugs) instead of UUIDs in the URL path.
+- Example: `/menu/category/1154ccdf-4d76-4333-b389-5d37b223c920` -> `/menu/category/sandwiches`
+- Updated `src/lib/menuService.ts` with `getCategoryBySlug(slug: string)` to resolve slugs to category objects.
+- Updated `src/routes.tsx` to use `:categorySlug` parameter.
+- Updated `MenuScreen` in `src/screens/HomeScreens.tsx` to generate slugs for navigation.
+- Updated `CategoryDetailScreen` in `src/screens/HomeScreens.tsx` to fetch category data using the slug from URL parameters.
 
 ### Major Refactor - React Router Implementation
 
@@ -19,7 +142,7 @@ Refactored the entire app from a single-page switch-based navigation system to u
 
 - `src/routes.tsx` - Route configuration with all app routes
   - Auth routes: `/`, `/login`, `/login/email`, `/verify`, `/verify/email`, `/welcome`, `/new-customer`, `/delivery-setup`
-  - Main routes: `/home`, `/menu`, `/menu/category/:categoryId`, `/menu/item/:itemId`
+  - Main routes: `/home`, `/menu`, `/menu/category/:categorySlug`, `/menu/item/:itemId`
   - Order routes: `/cart`, `/checkout`, `/success`
   - Management routes: `/orders`, `/orders/:orderId`, `/reorder`, `/reorder/modify`
   - Account routes: `/account`, `/account/addresses`, `/account/loyalty`, `/account/scheduled`, `/invoices`
@@ -48,7 +171,7 @@ Refactored the entire app from a single-page switch-based navigation system to u
 - `/` - Splash screen
 - `/home` - Home dashboard
 - `/menu` - Menu categories
-- `/menu/category/abc123` - Category items (dynamic categoryId)
+- `/menu/category/sandwiches` - Category items (dynamic categorySlug)
 - `/menu/item/xyz789` - Item detail (dynamic itemId)
 - `/cart` - Shopping cart
 - `/checkout` - Payment

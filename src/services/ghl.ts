@@ -357,5 +357,77 @@ export const ghlService = {
       console.error(`Error fetching orders for contact ${contactId}:`, error);
       return [];
     }
+  },
+
+  /**
+   * Create a new invoice (triggers n8n workflow for Invoice creation)
+   */
+  async createInvoice(payload: {
+    contactId: string;
+    items: any[];
+    subtotal: number;
+    tax: number;
+    deliveryFee: number;
+    total: number;
+    paymentMethod: string;
+    companyName: string;
+    deliveryDetails: any;
+  }) {
+    if (!N8N_BASE_URL) throw new Error('N8N_WEBHOOK_URL is not configured');
+
+    console.log(`[GHL] Creating invoice for contact: ${payload.contactId}`);
+
+    const response = await fetch(`${N8N_BASE_URL}/invoices`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text().catch(() => response.statusText);
+      throw new Error(`Failed to create invoice: ${response.status} ${errorText}`);
+    }
+
+    const contentType = response.headers.get('content-type');
+    if (contentType && contentType.includes('application/json')) {
+      return response.json();
+    }
+    return { success: true, text: await response.text() };
+  },
+
+  /**
+   * Create a new opportunity (triggers n8n workflow for Opportunity tracking)
+   */
+  async createOpportunity(payload: {
+    contactId: string;
+    invoiceId?: string;
+    total: number;
+    companyName: string;
+    deliveryDetails: any;
+  }) {
+    if (!N8N_BASE_URL) throw new Error('N8N_WEBHOOK_URL is not configured');
+
+    console.log(`[GHL] Creating opportunity for contact: ${payload.contactId}`);
+
+    const response = await fetch(`${N8N_BASE_URL}/opportunities`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text().catch(() => response.statusText);
+      throw new Error(`Failed to create opportunity: ${response.status} ${errorText}`);
+    }
+
+    const contentType = response.headers.get('content-type');
+    if (contentType && contentType.includes('application/json')) {
+      return response.json();
+    }
+    return { success: true, text: await response.text() };
   }
 };

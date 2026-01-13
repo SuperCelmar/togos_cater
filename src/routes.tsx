@@ -60,7 +60,7 @@ export const AppRoutes: React.FC = () => {
       {/* Main App Routes */}
       <Route path="/home" element={<HomeScreen />} />
       <Route path="/menu" element={<MenuScreen />} />
-      <Route path="/menu/category/:categoryId" element={<CategoryDetailScreen />} />
+      <Route path="/menu/category/:categorySlug" element={<CategoryDetailScreen />} />
       <Route path="/menu/item/:itemId" element={<ItemDetailScreen />} />
       <Route path="/cart" element={<CartScreen />} />
       <Route path="/checkout" element={<CheckoutScreen />} />

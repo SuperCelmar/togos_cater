@@ -478,7 +478,7 @@ export const VerificationScreen: React.FC = () => {
                 {otp.map((digit, i) => (
                     <input 
                       key={i}
-                      ref={(el) => (inputRefs.current[i] = el)}
+                      ref={(el) => { inputRefs.current[i] = el; }}
                       className="w-full aspect-square max-w-[3.5rem] bg-white dark:bg-[#331a1a] border border-slate-200 dark:border-[#4a2b2b] rounded-xl text-center text-2xl font-bold text-slate-900 dark:text-white focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary caret-primary transition-all shadow-sm"
                       maxLength={1}
                       type="tel"
@@ -668,7 +668,7 @@ export const VerificationEmailScreen: React.FC = () => {
                 {otp.map((digit, i) => (
                     <input 
                       key={i}
-                      ref={(el) => (inputRefs.current[i] = el)}
+                      ref={(el) => { inputRefs.current[i] = el; }}
                       className="w-full aspect-square max-w-[3.5rem] bg-white dark:bg-[#331a1a] border border-slate-200 dark:border-[#4a2b2b] rounded-xl text-center text-2xl font-bold text-slate-900 dark:text-white focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary caret-primary transition-all shadow-sm" 
                       maxLength={1} 
                       type="tel" 
@@ -719,6 +719,7 @@ export const WelcomeBackScreen: React.FC = () => {
         return;
       }
 
+      // Check if we already have orders to avoid redundant calls
       if (orders.length > 0) {
         setIsLoading(false);
         return;
@@ -729,6 +730,11 @@ export const WelcomeBackScreen: React.FC = () => {
         if (fetchedOrders && fetchedOrders.length > 0) {
           setOrders(fetchedOrders);
           setSelectedOrder(fetchedOrders[0]);
+        } else if (fetchedOrders) {
+          // If we got an empty array, still set it to mark as "loaded"
+          // but we need to be careful about the loop if setOrders([]) triggers re-render
+          // Since setOrders is now stable, it should be fine.
+          setOrders([]);
         }
       } catch (error) {
         console.error('Failed to fetch orders:', error);
@@ -941,7 +947,7 @@ export const NewCustomerScreen: React.FC = () => {
 
 export const DeliverySetupScreen: React.FC = () => {
   const navigate = useNavigate();
-  const { guestCount, contact, deliveryDetails, setDeliveryDetails } = useAppContext();
+  const { guestCount, contact, contactId, deliveryDetails, cartItems, setDeliveryDetails, populateCartFromRecommendation } = useAppContext();
   
   const getInitialValue = (
     deliveryField: string | undefined, 
@@ -966,10 +972,13 @@ export const DeliverySetupScreen: React.FC = () => {
   const [time, setTime] = useState(deliveryDetails?.time || '11:30');
   const [specialInstructions, setSpecialInstructions] = useState(deliveryDetails?.specialInstructions || '');
   const [error, setError] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const [userHasEdited, setUserHasEdited] = useState(false);
   
-  const wasAutoFilled = !deliveryDetails?.address && contact?.address1;
+  // Only show auto-fill message if address was auto-filled AND user hasn't started editing
+  const wasAutoFilled = !userHasEdited && address !== '' && (address === contact?.address1 || !deliveryDetails?.address);
 
-  const handleContinue = () => {
+  const handleContinue = async () => {
     if (!address.trim()) {
       setError('Please enter a delivery address');
       return;
@@ -1003,6 +1012,41 @@ export const DeliverySetupScreen: React.FC = () => {
       specialInstructions: specialInstructions.trim()
     });
 
+    // Save address to Go High Level
+    if (contactId) {
+      try {
+        await ghlService.updateContactAddress(contactId, {
+          address: address.trim(),
+          city: city.trim(),
+          state: state.trim(),
+          postalCode: zip.trim()
+        });
+      } catch (err) {
+        console.error('[DeliverySetup] Failed to save address to GHL:', err);
+        // Non-blocking - continue with flow even if save fails
+      }
+    }
+
+    // If cart is empty, auto-populate with recommendations
+    if (cartItems.length === 0 && guestCount) {
+      setIsLoading(true);
+      try {
+        const { getRecommendationWithItems } = await import('../lib/cateringRecommendations');
+        const recommendation = await getRecommendationWithItems(guestCount);
+        
+        if (recommendation.items.length > 0) {
+          populateCartFromRecommendation(recommendation);
+          navigate('/cart');
+          return;
+        }
+      } catch (err) {
+        console.error('[DeliverySetup] Failed to fetch recommendations:', err);
+        // Fall through to menu navigation if recommendations fail
+      } finally {
+        setIsLoading(false);
+      }
+    }
+
     navigate('/menu');
   };
   
@@ -1026,7 +1070,7 @@ export const DeliverySetupScreen: React.FC = () => {
                       className="w-full h-14 pl-12 pr-4 bg-gray-50 dark:bg-[#2a1a1a] border border-gray-200 dark:border-gray-700 rounded-xl text-base text-[#181111] dark:text-white focus:ring-primary focus:border-primary" 
                       placeholder="123 Main St"
                       value={address}
-                      onChange={(e) => setAddress(e.target.value)}
+                      onChange={(e) => { setAddress(e.target.value); setUserHasEdited(true); }}
                     />
                 </div>
             </div>
@@ -1038,7 +1082,7 @@ export const DeliverySetupScreen: React.FC = () => {
                       className="w-full h-14 px-4 bg-gray-50 dark:bg-[#2a1a1a] border border-gray-200 dark:border-gray-700 rounded-xl text-base text-[#181111] dark:text-white focus:ring-primary focus:border-primary" 
                       placeholder="City"
                       value={city}
-                      onChange={(e) => setCity(e.target.value)}
+                      onChange={(e) => { setCity(e.target.value); setUserHasEdited(true); }}
                     />
                 </div>
                 <div className="grid grid-cols-2 gap-2">
@@ -1049,7 +1093,7 @@ export const DeliverySetupScreen: React.FC = () => {
                           placeholder="ST"
                           maxLength={2}
                           value={state}
-                          onChange={(e) => setState(e.target.value.toUpperCase())}
+                          onChange={(e) => { setState(e.target.value.toUpperCase()); setUserHasEdited(true); }}
                         />
                     </div>
                     <div>
@@ -1057,8 +1101,8 @@ export const DeliverySetupScreen: React.FC = () => {
                         <input 
                           className="w-full h-14 px-4 bg-gray-50 dark:bg-[#2a1a1a] border border-gray-200 dark:border-gray-700 rounded-xl text-base text-[#181111] dark:text-white focus:ring-primary focus:border-primary" 
                           placeholder="ZIP"
-                          value={zip}
-                          onChange={(e) => setZip(e.target.value)}
+                      value={zip}
+                      onChange={(e) => { setZip(e.target.value); setUserHasEdited(true); }}
                         />
                     </div>
                 </div>
@@ -1107,8 +1151,19 @@ export const DeliverySetupScreen: React.FC = () => {
             )}
 
             <div className="mt-auto mb-8">
-                <button onClick={handleContinue} className="w-full h-14 bg-primary text-white rounded-xl font-bold text-lg shadow-lg shadow-primary/20 hover:bg-primary-hover active:scale-[0.98] transition-all">
-                    Continue to Menu
+                <button 
+                  onClick={handleContinue} 
+                  disabled={isLoading}
+                  className="w-full h-14 bg-primary text-white rounded-xl font-bold text-lg shadow-lg shadow-primary/20 hover:bg-primary-hover active:scale-[0.98] transition-all disabled:opacity-70 flex items-center justify-center gap-2"
+                >
+                    {isLoading ? (
+                      <>
+                        <span className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+                        <span>Building Your Order...</span>
+                      </>
+                    ) : (
+                      <span>{cartItems.length === 0 ? 'Build My Order' : 'Continue to Menu'}</span>
+                    )}
                 </button>
             </div>
        </div>

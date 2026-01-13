@@ -165,6 +165,62 @@ export const ConnectionTester: React.FC = () => {
     }
   };
 
+  const handleTestCreateOrder = async () => {
+    if (!contactId) {
+      addLog('❌ Error: Please enter a Contact ID first');
+      return;
+    }
+    setLoading(true);
+    addLog(`🚀 Starting Sequential Order Test for $900.41 (Contact ${contactId})...`);
+    try {
+      // 1. Create Invoice
+      const testPayload = {
+        contactId,
+        items: [
+          { id: 'mega-bundle-1', name: 'Catering Mega Bundle (Test)', price: 819.82, quantity: 1 }
+        ],
+        subtotal: 819.82,
+        tax: 65.59,
+        deliveryFee: 15.00,
+        total: 900.41,
+        paymentMethod: 'invoice',
+        companyName: 'Acme Company',
+        deliveryDetails: {
+          address: '123 Acme Way',
+          city: 'Roadrunner City',
+          state: 'AZ',
+          zip: '85001',
+          date: '2026-01-20',
+          time: '11:30 AM',
+          specialInstructions: 'Sequential test order ($900.41)'
+        }
+      };
+      
+      addLog('Step 1: Creating Invoice...', testPayload);
+      const invoiceResult = await ghlService.createInvoice(testPayload);
+      addLog('✅ Invoice Created:', invoiceResult);
+      
+      // 2. Create Opportunity
+      const oppPayload = {
+        contactId,
+        invoiceId: invoiceResult?.invoiceId || invoiceResult?.id,
+        total: 900.41,
+        companyName: 'Acme Company',
+        deliveryDetails: testPayload.deliveryDetails
+      };
+      
+      addLog('Step 2: Creating Opportunity...', oppPayload);
+      const oppResult = await ghlService.createOpportunity(oppPayload);
+      addLog('✅ Opportunity Created:', oppResult);
+      
+      addLog('✨ Sequential Test Complete!');
+    } catch (err: any) {
+      addLog('❌ Sequential Test Failed', err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <div className="p-4 space-y-6 max-w-4xl mx-auto">
       <div className="bg-white dark:bg-zinc-900 rounded-xl p-6 shadow-sm border border-slate-200 dark:border-slate-800">
@@ -279,6 +335,13 @@ export const ConnectionTester: React.FC = () => {
               className="w-full py-2 px-4 bg-orange-600 text-white rounded hover:bg-orange-700 disabled:opacity-50 font-medium"
             >
               Update GHL Address
+            </button>
+            <button
+              onClick={handleTestCreateOrder}
+              disabled={loading || !contactId}
+              className="w-full py-2 px-4 bg-rose-600 text-white rounded hover:bg-rose-700 disabled:opacity-50 font-medium"
+            >
+              Test Sequential Order ($900.41)
             </button>
             <button
               onClick={() => setLogs([])}

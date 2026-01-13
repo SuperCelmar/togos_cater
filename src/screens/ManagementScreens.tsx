@@ -52,7 +52,7 @@ export const OrdersScreen: React.FC = () => {
         return;
       }
 
-      // If orders already loaded, skip fetch
+      // If orders already loaded, skip fetch to prevent loops
       if (orders.length > 0) {
         setIsLoading(false);
         return;
@@ -60,6 +60,7 @@ export const OrdersScreen: React.FC = () => {
 
       try {
         const data = await ghlService.getOrdersByContactId(contactId);
+        // Use a functional update or ensure setOrders is stable
         setOrders(data || []);
       } catch (error) {
         console.error('Failed to fetch orders:', error);
@@ -598,6 +599,7 @@ export const InvoicesScreen: React.FC = () => {
                 return;
             }
 
+            // Skip if already loaded
             if (orders.length > 0) {
                 setIsLoading(false);
                 return;

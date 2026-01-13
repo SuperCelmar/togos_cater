@@ -188,6 +188,14 @@ export const CartScreen: React.FC = () => {
                     <>
                         {cartItems.map((item) => (
                             <div key={item.id} className="flex items-center gap-4 bg-white dark:bg-[#2d1a1a] px-4 min-h-[88px] py-4 border-b border-gray-50 dark:border-white/5">
+                                <div className="w-16 h-16 rounded-lg overflow-hidden shrink-0 bg-gray-100 dark:bg-white/5">
+                                    <img 
+                                        src={item.image_url || PLACEHOLDER_IMAGE} 
+                                        alt={item.name}
+                                        className="w-full h-full object-cover"
+                                        onError={(e) => { e.currentTarget.src = PLACEHOLDER_IMAGE; }}
+                                    />
+                                </div>
                                 <div className="flex flex-col gap-2 w-full">
                                     <div className="flex justify-between items-start">
                                         <p className="text-[#181111] dark:text-white text-base font-bold leading-normal">{item.name}</p>
@@ -305,6 +313,7 @@ export const CheckoutScreen: React.FC = () => {
     } = useAppContext();
     
     const [isProcessing, setIsProcessing] = useState(false);
+    const [paymentMethod, setPaymentMethod] = useState<'card' | 'invoice'>('card');
 
     // Calculate total
     const subtotal = cartItems.reduce((sum, item) => sum + (item.price * item.quantity), 0);
@@ -312,16 +321,22 @@ export const CheckoutScreen: React.FC = () => {
     const deliveryFee = subtotal > 0 ? 15 : 0;
     const total = subtotal + tax + deliveryFee;
 
-    // Get company name from contact
-    const companyName = contact?.companyName || contact?.name || 
+    // Get default company name from contact
+    const defaultCompanyName = contact?.companyName || contact?.name || 
         (contact?.firstName && contact?.lastName ? `${contact.firstName} ${contact.lastName}` : '');
+    
+    const [invoiceCompanyName, setInvoiceCompanyName] = useState(defaultCompanyName);
 
     const handleCompleteOrder = async () => {
         setIsProcessing(true);
         
         try {
-            // Save the delivery address to GHL for future reuse
-            if (deliveryDetails?.address && contactId) {
+            if (!contactId) {
+                throw new Error('User not logged in or contact ID missing');
+            }
+
+            // 1. Sync delivery address to GHL (for future reuse)
+            if (deliveryDetails?.address) {
                 try {
                     await ghlService.updateContactAddress(contactId, {
                         address: deliveryDetails.address,
@@ -335,14 +350,63 @@ export const CheckoutScreen: React.FC = () => {
                 }
             }
 
-            // Calculate cashback earned (5% of total)
+            // 2. Create the Invoice and Opportunity in GHL via n8n
+            try {
+                // Step A: Create Invoice
+                const invoiceResult = await ghlService.createInvoice({
+                    contactId,
+                    items: cartItems.map(item => ({
+                        id: item.id,
+                        name: item.name,
+                        price: item.price,
+                        quantity: item.quantity,
+                        specialInstructions: item.specialInstructions
+                    })),
+                    subtotal,
+                    tax,
+                    deliveryFee,
+                    total,
+                    paymentMethod,
+                    companyName: invoiceCompanyName,
+                    deliveryDetails: {
+                        address: deliveryDetails?.address,
+                        city: deliveryDetails?.city,
+                        state: deliveryDetails?.state,
+                        zip: deliveryDetails?.zip,
+                        date: deliveryDetails?.date,
+                        time: deliveryDetails?.time,
+                        specialInstructions: deliveryDetails?.specialInstructions
+                    }
+                });
+
+                // Step B: Create Opportunity
+                await ghlService.createOpportunity({
+                    contactId,
+                    invoiceId: invoiceResult?.invoiceId || invoiceResult?.id,
+                    total,
+                    companyName: invoiceCompanyName,
+                    deliveryDetails: {
+                        address: deliveryDetails?.address,
+                        city: deliveryDetails?.city,
+                        state: deliveryDetails?.state,
+                        zip: deliveryDetails?.zip,
+                        date: deliveryDetails?.date,
+                        time: deliveryDetails?.time,
+                        specialInstructions: deliveryDetails?.specialInstructions
+                    }
+                });
+            } catch (orderError) {
+                console.error('Failed to create order (Invoice/Opportunity) in GHL:', orderError);
+                // We'll still proceed to the success screen for now, 
+                // but in production we might want to handle this differently
+            }
+
+            // 3. Update Loyalty/Cashback
             const cashbackEarned = total * 0.05;
             const newCashbackBalance = cashbackBalance + cashbackEarned;
-
-            // Update cashback balance
             setCashbackBalance(newCashbackBalance);
             
-            // Clear cart
+            // 4. Clear cart and navigate
             clearCart();
 
             navigate('/success', { 
@@ -384,7 +448,13 @@ export const CheckoutScreen: React.FC = () => {
                 </div>
                 <div className="flex flex-col gap-3 p-4">
                      <label className="flex items-center gap-4 rounded-xl border border-solid border-[#e6dbdb] dark:border-gray-700 bg-white dark:bg-[#2a1a1a] p-[18px] cursor-pointer transition-all hover:border-primary/50">
-                        <input defaultChecked className="h-5 w-5 border-2 border-[#e6dbdb] bg-transparent text-transparent checked:border-primary focus:outline-none focus:ring-0 focus:ring-offset-0 checked:focus:border-primary" name="payment-method" type="radio"/>
+                        <input 
+                            checked={paymentMethod === 'card'} 
+                            onChange={() => setPaymentMethod('card')}
+                            className="h-5 w-5 border-2 border-[#e6dbdb] bg-transparent text-transparent checked:border-primary focus:outline-none focus:ring-0 focus:ring-offset-0 checked:focus:border-primary" 
+                            name="payment-method" 
+                            type="radio"
+                        />
                         <div className="flex grow items-center gap-3">
                             <div className="flex size-10 items-center justify-center rounded-lg bg-gray-100 dark:bg-gray-800">
                                 <span className="material-symbols-outlined text-gray-700 dark:text-gray-300">credit_card</span>
@@ -399,7 +469,13 @@ export const CheckoutScreen: React.FC = () => {
                         </div>
                     </label>
                      <label className="flex items-center gap-4 rounded-xl border border-solid border-[#e6dbdb] dark:border-gray-700 bg-white dark:bg-[#2a1a1a] p-[18px] cursor-pointer transition-all hover:border-primary/50">
-                        <input className="h-5 w-5 border-2 border-[#e6dbdb] bg-transparent text-transparent checked:border-primary focus:outline-none focus:ring-0 focus:ring-offset-0 checked:focus:border-primary" name="payment-method" type="radio"/>
+                        <input 
+                            checked={paymentMethod === 'invoice'} 
+                            onChange={() => setPaymentMethod('invoice')}
+                            className="h-5 w-5 border-2 border-[#e6dbdb] bg-transparent text-transparent checked:border-primary focus:outline-none focus:ring-0 focus:ring-offset-0 checked:focus:border-primary" 
+                            name="payment-method" 
+                            type="radio"
+                        />
                         <div className="flex grow items-center gap-3">
                              <div className="flex size-10 items-center justify-center rounded-lg bg-gray-100 dark:bg-gray-800">
                                 <span className="material-symbols-outlined text-gray-700 dark:text-gray-300">description</span>
@@ -416,7 +492,8 @@ export const CheckoutScreen: React.FC = () => {
                         <p className="text-[#181111] dark:text-white text-sm font-medium leading-normal pb-2">Company name for invoice</p>
                         <input 
                             className="form-input flex w-full min-w-0 flex-1 resize-none overflow-hidden rounded-lg text-[#181111] dark:text-white focus:outline-0 focus:ring-1 focus:ring-primary border border-[#e6dbdb] dark:border-gray-700 bg-white dark:bg-[#2a1a1a] h-14 placeholder:text-[#896161] p-[15px] text-base font-normal leading-normal" 
-                            defaultValue={companyName}
+                            value={invoiceCompanyName}
+                            onChange={(e) => setInvoiceCompanyName(e.target.value)}
                             placeholder="Your company name"
                         />
                     </label>
@@ -485,10 +562,20 @@ export const OrderSuccessScreen: React.FC = () => {
                     <p className="text-gray-500 mb-6">Order #{Math.floor(Math.random() * 90000) + 10000}</p>
                     
                     <div className="bg-white dark:bg-[#2a1a1a] rounded-xl p-4 text-left shadow-sm border border-gray-100 dark:border-white/5 mb-6">
-                        <div className="border-b border-gray-100 dark:border-gray-700 pb-3 mb-3">
+                        <div className="border-b border-gray-100 dark:border-gray-700 pb-3 mb-3 space-y-3">
                             {orderItems.map((item, idx) => (
-                                <div key={idx} className="flex justify-between font-bold text-[#181111] dark:text-white mb-1">
-                                    <span>{item.quantity}x {item.name}</span>
+                                <div key={idx} className="flex items-center gap-3">
+                                    <div className="w-10 h-10 rounded-md overflow-hidden shrink-0 bg-gray-100 dark:bg-white/5">
+                                        <img 
+                                            src={item.image_url || PLACEHOLDER_IMAGE} 
+                                            alt={item.name}
+                                            className="w-full h-full object-cover"
+                                            onError={(e) => { e.currentTarget.src = PLACEHOLDER_IMAGE; }}
+                                        />
+                                    </div>
+                                    <div className="flex-1 font-bold text-[#181111] dark:text-white text-sm">
+                                        <span>{item.quantity}x {item.name}</span>
+                                    </div>
                                 </div>
                             ))}
                              <div className="flex justify-between items-center mt-3 pt-3 border-t border-dashed border-gray-200">

@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams, NavLink, useLocation } from 'react-router';
 import { useAppContext, SelectedItem } from '../context/AppContext';
 import { GHLContact, GHLOrder } from '../../types';
-import { getCateringCategories, getCateringItemsByCategory, getCategoryById, formatPrice, getServesText, MenuCategory, MenuItem } from '../lib/menuService';
+import { getCateringCategories, getCateringItemsByCategory, getCategoryById, getCategoryBySlug, formatPrice, getServesText, MenuCategory, MenuItem } from '../lib/menuService';
 import { ghlService } from '../services/ghl';
 
 // Default placeholder image for items without images
@@ -171,7 +171,8 @@ export const MenuScreen: React.FC = () => {
     }, []);
 
     const handleCategoryClick = (category: MenuCategory) => {
-        navigate(`/menu/category/${category.id}`);
+        const slug = category.name.trim().toLowerCase().replace(/\s+/g, '-');
+        navigate(`/menu/category/${slug}`);
     };
 
     return (
@@ -237,8 +238,17 @@ export const MenuScreen: React.FC = () => {
 
 export const CategoryDetailScreen: React.FC = () => {
     const navigate = useNavigate();
-    const { categoryId } = useParams<{ categoryId: string }>();
-    const { guestCount } = useAppContext();
+    const { categorySlug } = useParams<{ categorySlug: string }>();
+    const { guestCount, cartItems } = useAppContext();
+    
+    // Helper to get cart quantity for an item
+    const getCartQuantity = (itemId: string): number => {
+        const cartItem = cartItems.find(i => i.id === itemId);
+        return cartItem?.quantity || 0;
+    };
+    
+    // Total items in cart
+    const totalCartItems = cartItems.reduce((sum, item) => sum + item.quantity, 0);
     
     const [items, setItems] = useState<MenuItem[]>([]);
     const [categoryName, setCategoryName] = useState('Category');
@@ -247,20 +257,24 @@ export const CategoryDetailScreen: React.FC = () => {
 
     useEffect(() => {
         async function fetchItems() {
-            if (!categoryId) {
+            if (!categorySlug) {
                 setError('No category selected');
                 setIsLoading(false);
                 return;
             }
 
             try {
-                // Fetch category name
-                const category = await getCategoryById(categoryId);
-                if (category) {
-                    setCategoryName(category.name);
+                // Fetch category by slug
+                const category = await getCategoryBySlug(categorySlug);
+                if (!category) {
+                    setError('Category not found');
+                    setIsLoading(false);
+                    return;
                 }
+                
+                setCategoryName(category.name);
 
-                const data = await getCateringItemsByCategory(categoryId);
+                const data = await getCateringItemsByCategory(category.id);
                 setItems(data);
             } catch (err) {
                 console.error('Failed to fetch items:', err);
@@ -271,7 +285,7 @@ export const CategoryDetailScreen: React.FC = () => {
         }
 
         fetchItems();
-    }, [categoryId]);
+    }, [categorySlug]);
 
     const handleItemClick = (item: MenuItem) => {
         // Pass item data via route state
@@ -303,12 +317,17 @@ export const CategoryDetailScreen: React.FC = () => {
                             <p className="text-xs text-primary font-medium">For {guestCount} people</p>
                         )}
                     </div>
-                    <div onClick={() => navigate('/cart')} className="flex w-10 items-center justify-center cursor-pointer">
+                    <div onClick={() => navigate('/cart')} className="relative flex w-10 items-center justify-center cursor-pointer">
                         <span className="material-symbols-outlined">shopping_bag</span>
+                        {totalCartItems > 0 && (
+                            <span className="absolute -top-1 -right-1 w-5 h-5 bg-primary text-white text-xs font-bold rounded-full flex items-center justify-center">
+                                {totalCartItems > 99 ? '99+' : totalCartItems}
+                            </span>
+                        )}
                     </div>
                 </div>
             </header>
-            <main className="flex-1 overflow-y-auto no-scrollbar p-4 gap-4 flex flex-col">
+            <main className="flex-1 overflow-y-auto no-scrollbar p-4 flex flex-col gap-4">
                 {isLoading ? (
                     <div className="flex items-center justify-center p-8">
                         <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
@@ -318,34 +337,49 @@ export const CategoryDetailScreen: React.FC = () => {
                 ) : items.length === 0 ? (
                     <div className="p-4 text-center text-gray-500">No items in this category.</div>
                 ) : (
-                    items.map((item, index) => item ? (
+                    items.map((item, index) => {
+                        const cartQty = getCartQuantity(item.id);
+                        return item ? (
                         <div 
                             key={item.id || `item-${index}`} 
                             onClick={() => handleItemClick(item)} 
-                            className="bg-white dark:bg-[#2a1a1a] rounded-xl overflow-hidden shadow-sm cursor-pointer"
+                            className={`flex items-center gap-4 p-4 bg-white dark:bg-[#2a1a1a] rounded-xl cursor-pointer hover:shadow-md transition-shadow ${cartQty > 0 ? 'ring-2 ring-primary ring-opacity-50' : ''}`}
                         >
-                            <img 
-                                src={item.image_url || PLACEHOLDER_IMAGE}
-                                alt={item.name || 'Menu item'}
-                                onError={(e) => { e.currentTarget.src = PLACEHOLDER_IMAGE; }}
-                                className="h-40 w-full object-cover bg-gray-200"
-                            />
-                            <div className="p-4">
-                                <div className="flex justify-between items-start mb-2">
-                                    <h3 className="text-lg font-bold text-[#181111] dark:text-white">{item.name || 'Unnamed Item'}</h3>
-                                    <span className="font-bold text-primary">{formatPrice(item.price || 0)}</span>
+                            <div className="relative shrink-0">
+                                <img 
+                                    src={item.image_url || PLACEHOLDER_IMAGE}
+                                    alt={item.name || 'Menu item'}
+                                    onError={(e) => { e.currentTarget.src = PLACEHOLDER_IMAGE; }}
+                                    className="w-24 h-24 rounded-lg object-cover bg-gray-200"
+                                />
+                                {cartQty > 0 && (
+                                    <span className="absolute -top-2 -right-2 w-6 h-6 bg-primary text-white text-xs font-bold rounded-full flex items-center justify-center shadow-lg">
+                                        {cartQty}
+                                    </span>
+                                )}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                                <div className="flex justify-between items-start mb-1">
+                                    <h3 className="text-[#181111] dark:text-white text-base font-bold leading-tight truncate mr-2">{item.name || 'Unnamed Item'}</h3>
+                                    <span className="font-bold text-primary text-sm shrink-0">{formatPrice(item.price || 0)}</span>
                                 </div>
                                 {(item.serves_min || item.serves_max) && (
-                                    <p className="text-sm text-gray-500 mb-2">
+                                    <p className="text-xs text-gray-500 mb-1 font-medium">
                                         {getServesText(item.serves_min, item.serves_max)}
                                     </p>
                                 )}
+                                {cartQty > 0 && (
+                                    <p className="text-xs text-primary font-bold mb-1">
+                                        {cartQty} in cart
+                                    </p>
+                                )}
                                 {item.description && (
-                                    <p className="text-sm text-gray-600 dark:text-gray-400 line-clamp-2">{item.description}</p>
+                                    <p className="text-xs text-gray-600 dark:text-gray-400 line-clamp-2 leading-relaxed font-normal">{item.description}</p>
                                 )}
                             </div>
+                            <span className="material-symbols-outlined text-gray-300 shrink-0">chevron_right</span>
                         </div>
-                    ) : null)
+                    ) : null})
                 )}
                 <div className="h-20"></div>
             </main>
