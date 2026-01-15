@@ -131,6 +131,29 @@ function parseAddress(addressString: string): {
   }
 }
 
+/**
+ * Format a phone number to E.164 format (+1XXXXXXXXXX)
+ */
+function formatPhoneE164(phone: string): string {
+  if (!phone) return '';
+  
+  // Remove non-digits
+  let cleanPhone = phone.replace(/\D/g, '');
+  
+  if (cleanPhone.length === 0) return '';
+  
+  // Handle different lengths
+  if (cleanPhone.length === 10) {
+    return `+1${cleanPhone}`;
+  } else if (cleanPhone.length === 11 && cleanPhone.startsWith('1')) {
+    return `+${cleanPhone}`;
+  } else if (!cleanPhone.startsWith('+')) {
+    return `+${cleanPhone}`;
+  }
+  
+  return cleanPhone.startsWith('+') ? cleanPhone : `+${cleanPhone}`;
+}
+
 export const ghlService = {
   /**
    * Search for a contact by phone number or email
@@ -144,17 +167,7 @@ export const ghlService = {
     let searchTerm = query;
     
     if (isPhone) {
-      // Format to E.164: Remove non-digits and ensure +1 prefix
-      let cleanPhone = query.replace(/\D/g, '');
-      if (cleanPhone.length === 10) {
-        cleanPhone = `+1${cleanPhone}`;
-      } else if (cleanPhone.length === 11 && cleanPhone.startsWith('1')) {
-        cleanPhone = `+${cleanPhone}`;
-      } else if (!cleanPhone.startsWith('+') && cleanPhone.length > 0) {
-        // Fallback: if it's already 11+ digits but doesn't start with +, add it
-        cleanPhone = `+${cleanPhone}`;
-      }
-      searchTerm = cleanPhone;
+      searchTerm = formatPhoneE164(query);
     }
     
     const url = `${N8N_BASE_URL}/contacts/search?q=${encodeURIComponent(searchTerm)}`;
@@ -181,19 +194,7 @@ export const ghlService = {
   async createContact(data: ContactData) {
     if (!N8N_BASE_URL) throw new Error('N8N_WEBHOOK_URL is not configured');
 
-    // Handle phone formatting - skip if empty or falsy
-    let e164Phone = '';
-    if (data.phone && data.phone.trim()) {
-      e164Phone = data.phone.replace(/\D/g, '');
-      if (e164Phone.length === 10) {
-        e164Phone = `+1${e164Phone}`;
-      } else if (e164Phone.length === 11 && e164Phone.startsWith('1')) {
-        e164Phone = `+${e164Phone}`;
-      } else if (!e164Phone.startsWith('+') && e164Phone.length > 0) {
-        e164Phone = `+${e164Phone}`;
-      }
-    }
-
+    const e164Phone = formatPhoneE164(data.phone);
     const payload = { ...data, phone: e164Phone };
 
     const response = await fetch(`${N8N_BASE_URL}/contacts`, {
@@ -340,18 +341,40 @@ export const ghlService = {
 
       const data = await response.json();
       
+      let rawOrders: any[] = [];
       // Handle different response structures
-      // Could be { orders: [...] } or direct array [...]
       if (Array.isArray(data)) {
-        return data;
+        rawOrders = data;
       } else if (data.orders && Array.isArray(data.orders)) {
-        return data.orders;
+        rawOrders = data.orders;
+      } else if (data.invoices && Array.isArray(data.invoices)) {
+        rawOrders = data.invoices;
       } else if (data.data && Array.isArray(data.data)) {
-        return data.data;
+        rawOrders = data.data;
       }
       
-      // If structure doesn't match expected format, return empty array
-      return [];
+      // Map to GHLOrder interface
+      return rawOrders.map((o: any) => ({
+        id: o._id || o.id,
+        invoiceNumber: o.invoiceNumber,
+        contactId: o.contactDetails?.id || o.contactId,
+        status: o.status,
+        totalAmount: o.total !== undefined ? o.total : o.totalAmount,
+        createdAt: o.createdAt,
+        items: (o.invoiceItems || o.items || []).map((i: any) => ({
+          name: i.name,
+          quantity: i.qty || i.quantity,
+          price: i.amount || i.price
+        })),
+        deliveryAddress: o.contactDetails?.address 
+          ? [
+              o.contactDetails.address.addressLine1, 
+              o.contactDetails.address.city, 
+              o.contactDetails.address.state
+            ].filter(Boolean).join(', ') 
+          : o.deliveryAddress,
+        deliveryDate: o.dueDate, // approximation
+      }));
     } catch (error) {
       // On error, return empty array to allow flow to continue
       console.error(`Error fetching orders for contact ${contactId}:`, error);
@@ -360,10 +383,34 @@ export const ghlService = {
   },
 
   /**
+   * Send invoice to customer
+   */
+  async sendInvoice(invoiceId: string) {
+    if (!N8N_BASE_URL) throw new Error('N8N_WEBHOOK_URL is not configured');
+    
+    console.log(`[GHL] Sending invoice: ${invoiceId}`);
+    
+    const response = await fetch(`${N8N_BASE_URL}/invoices/send?invoice_id=${encodeURIComponent(invoiceId)}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
+
+    if (!response.ok) {
+      console.error(`Failed to send invoice: ${response.statusText}`);
+      return false;
+    }
+
+    return true;
+  },
+
+  /**
    * Create a new invoice (triggers n8n workflow for Invoice creation)
    */
   async createInvoice(payload: {
     contactId: string;
+    contact?: any; // Added to support full invoice details
     items: any[];
     subtotal: number;
     tax: number;
@@ -377,12 +424,135 @@ export const ghlService = {
 
     console.log(`[GHL] Creating invoice for contact: ${payload.contactId}`);
 
+    // Construct the detailed JSON body based on the guideline
+    const invoiceBody = {
+      altId: "",
+      altType: "location",
+      name: `Catering Order - ${new Date().toLocaleDateString()}`,
+      businessDetails: {
+        logoUrl: "https://storage.googleapis.com/msgsndr/6ZTST3Tqvk92LsqppK5t/media/689f48fa1962bbc059fa4053.png",
+        name: "Togo's Sandwiches",
+        phoneNo: "+1 310-214-8222",
+        address: {
+          addressLine1: "20022 hawthorne blvd",
+          addressLine2: "",
+          city: "Torrance",
+          state: "CA",
+          countryCode: "US",
+          postalCode: "90503"
+        },
+        website: "https://www.togos.com",
+        customValues: []
+      },
+      currency: "USD",
+      items: payload.items.map(item => ({
+        name: item.name,
+        description: item.specialInstructions || item.name,
+        productId: item.id || "6578278e879ad2646715ba9c",
+        priceId: item.id || "6578278e879ad2646715ba9c",
+        currency: "USD",
+        amount: item.price,
+        qty: item.quantity,
+        taxes: [],
+        automaticTaxCategoryId: "6578278e879ad2646715ba9c",
+        isSetupFeeItem: false,
+        type: "one_time",
+        taxInclusive: false
+      })),
+      discount: {
+        value: 0,
+        type: "percentage",
+        validOnProductIds: []
+      },
+      termsNotes: "<p>Thank you for your business!</p>",
+      title: "INVOICE",
+      contactDetails: {
+        id: payload.contactId,
+        name: payload.contact?.name || (payload.contact?.firstName && payload.contact?.lastName ? `${payload.contact.firstName} ${payload.contact.lastName}` : "Valued Customer"),
+        phoneNo: formatPhoneE164(payload.contact?.phone) || "",
+        email: payload.contact?.email || "",
+        additionalEmails: [],
+        companyName: payload.companyName || payload.contact?.companyName || "N/A",
+        address: {
+            addressLine1: payload.deliveryDetails?.address || payload.contact?.address1 || "",
+            addressLine2: "",
+            city: payload.deliveryDetails?.city || payload.contact?.city || "",
+            state: payload.deliveryDetails?.state || payload.contact?.state || "",
+            countryCode: "US",
+            postalCode: payload.deliveryDetails?.zip || payload.contact?.postalCode || ""
+        },
+        customFields: []
+      },
+      invoiceNumber: Math.floor(Date.now() / 1000).toString(),
+      issueDate: new Date().toISOString().split('T')[0],
+      dueDate: payload.deliveryDetails?.date ? new Date(payload.deliveryDetails.date).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
+      sentTo: {
+        email: payload.contact?.email ? [payload.contact.email] : [],
+        emailCc: [],
+        emailBcc: [],
+        phoneNo: payload.contact?.phone ? [formatPhoneE164(payload.contact.phone)] : []
+      },
+      liveMode: true,
+      automaticTaxesEnabled: true,
+      lateFeesConfiguration: {
+        enable: true,
+        value: 10,
+        type: "fixed",
+        frequency: {
+          intervalCount: 10,
+          interval: "day"
+        },
+        grace: {
+          intervalCount: 10,
+          interval: "day"
+        },
+        maxLateFees: {
+          type: "fixed",
+          value: 10
+        }
+      },
+      tipsConfiguration: {
+        tipsPercentage: [5, 10, 15],
+        tipsEnabled: true
+      },
+      invoiceNumberPrefix: "INV-",
+      paymentMethods: {
+        stripe: {
+          enableBankDebitOnly: false
+        }
+      },
+      attachments: [],
+      miscellaneousCharges: {
+        charges: [],
+        collectedMiscellaneousCharges: 0,
+        paidCharges: []
+      }
+    };
+    
+    // Add Delivery Fee as an item if exists
+    if (payload.deliveryFee > 0) {
+        invoiceBody.items.push({
+            name: "Delivery Fee",
+            description: "Delivery Service",
+            productId: "delivery-fee-id",
+            priceId: "delivery-fee-id",
+            currency: "USD",
+            amount: payload.deliveryFee,
+            qty: 1,
+            taxes: [],
+            automaticTaxCategoryId: "6578278e879ad2646715ba9c",
+            isSetupFeeItem: false,
+            type: "one_time",
+            taxInclusive: false
+        });
+    }
+
     const response = await fetch(`${N8N_BASE_URL}/invoices`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify(payload),
+      body: JSON.stringify(invoiceBody),
     });
 
     if (!response.ok) {

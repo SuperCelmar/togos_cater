@@ -351,10 +351,13 @@ export const CheckoutScreen: React.FC = () => {
             }
 
             // 2. Create the Invoice and Opportunity in GHL via n8n
+            let createdInvoiceId: string | undefined;
+
             try {
                 // Step A: Create Invoice
                 const invoiceResult = await ghlService.createInvoice({
                     contactId,
+                    contact, // Pass the full contact object
                     items: cartItems.map(item => ({
                         id: item.id,
                         name: item.name,
@@ -378,11 +381,14 @@ export const CheckoutScreen: React.FC = () => {
                         specialInstructions: deliveryDetails?.specialInstructions
                     }
                 });
+                
+                // Capture ID from various possible fields
+                createdInvoiceId = invoiceResult?.invoiceId || invoiceResult?.id || invoiceResult?._id;
 
                 // Step B: Create Opportunity
                 await ghlService.createOpportunity({
                     contactId,
-                    invoiceId: invoiceResult?.invoiceId || invoiceResult?.id,
+                    invoiceId: createdInvoiceId,
                     total,
                     companyName: invoiceCompanyName,
                     deliveryDetails: {
@@ -395,6 +401,15 @@ export const CheckoutScreen: React.FC = () => {
                         specialInstructions: deliveryDetails?.specialInstructions
                     }
                 });
+
+                // Step C: Send Invoice (Trigger Webhook)
+                if (createdInvoiceId) {
+                    // Fire and forget, don't block order completion on email sending
+                    ghlService.sendInvoice(createdInvoiceId).catch(err => 
+                        console.error('Failed to trigger send invoice webhook:', err)
+                    );
+                }
+
             } catch (orderError) {
                 console.error('Failed to create order (Invoice/Opportunity) in GHL:', orderError);
                 // We'll still proceed to the success screen for now, 
@@ -415,7 +430,8 @@ export const CheckoutScreen: React.FC = () => {
                 cashbackEarned,
                 newCashbackBalance,
                 items: cartItems,
-                deliveryDetails 
+                deliveryDetails,
+                invoiceId: createdInvoiceId 
               },
               replace: true 
             });
@@ -538,6 +554,7 @@ export const OrderSuccessScreen: React.FC = () => {
       newCashbackBalance?: number;
       items?: CartItem[];
       deliveryDetails?: typeof deliveryDetails;
+      invoiceId?: string;
     } | null;
     
     const orderTotal = orderState?.orderTotal || 0;
@@ -608,7 +625,18 @@ export const OrderSuccessScreen: React.FC = () => {
                 <button onClick={() => navigate('/home', { replace: true })} className="w-full py-4 bg-primary text-white font-bold rounded-xl text-center hover:opacity-90 transition-opacity">
                     Back to Home
                 </button>
-                <button className="w-full py-3 text-gray-500 font-bold text-sm">Download Receipt</button>
+                <button 
+                    onClick={() => {
+                        if (orderState?.invoiceId) {
+                            const baseUrl = import.meta.env.VITE_N8N_WEBHOOK_URL?.replace(/\/$/, '');
+                            // User specified clicking calls /invoice_pdf endpoint
+                            window.open(`${baseUrl}/invoice_pdf?invoice_id=${orderState.invoiceId}`, '_blank');
+                        }
+                    }}
+                    className="w-full py-3 text-gray-500 font-bold text-sm"
+                >
+                    Check invoice
+                </button>
             </div>
         </div>
     );

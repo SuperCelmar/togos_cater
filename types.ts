@@ -73,6 +73,7 @@ export interface GHLContact {
 // GHL Order data structure
 export interface GHLOrder {
   id: string;
+  invoiceNumber?: string;
   contactId: string;
   status: string;
   totalAmount: number;

@@ -212,8 +212,24 @@ export const OrderDetailScreen: React.FC = () => {
                 )}
 
                 <div className="space-y-3">
-                    <button className="w-full h-12 border-2 border-primary text-primary font-bold rounded-xl">Download Receipt (PDF)</button>
-                    <button className="w-full h-12 border-2 border-gray-200 dark:border-gray-700 text-[#181111] dark:text-white font-bold rounded-xl">Download Invoice (PDF)</button>
+                    <button 
+                        onClick={() => {
+                            const baseUrl = import.meta.env.VITE_N8N_WEBHOOK_URL?.replace(/\/$/, '');
+                            window.open(`${baseUrl}/invoice_pdf?invoice_id=${order.id}`, '_blank');
+                        }}
+                        className="w-full h-12 border-2 border-primary text-primary font-bold rounded-xl"
+                    >
+                        Download Receipt (PDF)
+                    </button>
+                    <button 
+                        onClick={() => {
+                            const baseUrl = import.meta.env.VITE_N8N_WEBHOOK_URL?.replace(/\/$/, '');
+                            window.open(`${baseUrl}/invoice_pdf?invoice_id=${order.id}`, '_blank');
+                        }}
+                        className="w-full h-12 border-2 border-gray-200 dark:border-gray-700 text-[#181111] dark:text-white font-bold rounded-xl"
+                    >
+                        Download Invoice (PDF)
+                    </button>
                 </div>
             </main>
              <div className="p-4 bg-white dark:bg-[#1a0c0c] border-t border-gray-100 dark:border-gray-800 shrink-0">

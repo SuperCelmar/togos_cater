@@ -16,6 +16,7 @@ export const ConnectionTester: React.FC = () => {
     address: '123 Test Street, Suite 100, City, ST 12345',
     label: 'Office'
   });
+  const [testInvoiceId, setTestInvoiceId] = useState('');
 
   const addLog = (msg: string, data?: any) => {
     const timestamp = new Date().toLocaleTimeString();
@@ -176,6 +177,14 @@ export const ConnectionTester: React.FC = () => {
       // 1. Create Invoice
       const testPayload = {
         contactId,
+        contact: {
+            id: contactId,
+            firstName: formData.firstName,
+            lastName: formData.lastName,
+            email: formData.email,
+            phone: formData.phone,
+            address1: addressData.address
+        },
         items: [
           { id: 'mega-bundle-1', name: 'Catering Mega Bundle (Test)', price: 819.82, quantity: 1 }
         ],
@@ -216,6 +225,27 @@ export const ConnectionTester: React.FC = () => {
       addLog('✨ Sequential Test Complete!');
     } catch (err: any) {
       addLog('❌ Sequential Test Failed', err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleTestSendInvoice = async () => {
+    if (!testInvoiceId) {
+      addLog('❌ Error: Please enter an Invoice ID');
+      return;
+    }
+    setLoading(true);
+    addLog(`Sending Invoice ${testInvoiceId}...`);
+    try {
+      const success = await ghlService.sendInvoice(testInvoiceId);
+      if (success) {
+        addLog('✅ Invoice send triggered successfully');
+      } else {
+        addLog('❌ Failed to trigger invoice send');
+      }
+    } catch (err: any) {
+      addLog('❌ Error sending invoice', err.message);
     } finally {
       setLoading(false);
     }
@@ -281,6 +311,16 @@ export const ConnectionTester: React.FC = () => {
                 onChange={e => setAddressData({...addressData, label: e.target.value})}
               />
             </div>
+            
+            <div className="pt-2 border-t dark:border-zinc-700">
+              <label className="text-xs font-bold text-slate-400 uppercase">Invoice Test Data</label>
+              <input
+                className="w-full p-2 border rounded dark:bg-zinc-800 dark:border-zinc-700 mt-1"
+                placeholder="Invoice ID"
+                value={testInvoiceId}
+                onChange={e => setTestInvoiceId(e.target.value)}
+              />
+            </div>
           </div>
 
           <div className="space-y-3">
@@ -342,6 +382,13 @@ export const ConnectionTester: React.FC = () => {
               className="w-full py-2 px-4 bg-rose-600 text-white rounded hover:bg-rose-700 disabled:opacity-50 font-medium"
             >
               Test Sequential Order ($900.41)
+            </button>
+            <button
+              onClick={handleTestSendInvoice}
+              disabled={loading || !testInvoiceId}
+              className="w-full py-2 px-4 bg-pink-600 text-white rounded hover:bg-pink-700 disabled:opacity-50 font-medium"
+            >
+              Send Invoice (Webhook)
             </button>
             <button
               onClick={() => setLogs([])}

@@ -1,5 +1,38 @@
 # Changelog
 
+## 2026-01-15 (Catering Items CSV Export)
+
+### Added - CSV Export of Catering Items
+- Created `catering_items.csv` in the root directory containing all available catering items.
+- Fetched item data (name, description, price) directly from Supabase `menu_items` table.
+- Included category name for context.
+- Verified all 18 catering products are present in the export.
+
+## 2026-01-14 (GHL Service Improvements)
+
+### Fixed - GHL Service Validation & Formatting
+- Created `formatPhoneE164` helper in `src/services/ghl.ts` to standardize phone numbers.
+- Updated `createInvoice`, `searchContact`, and `createContact` to use the new phone formatting helper.
+- Fixed validation errors in `createInvoice`:
+  - Removed invalid `paymentSchedule` block.
+  - Corrected `lateFeesConfiguration.maxLateFees.value` type (number instead of string).
+
+## 2026-01-12 (Invoice Payload Structure Update)
+
+### Fixed - GHL Invoice Payload Structure
+- Updated `ghlService.createInvoice` to construct a comprehensive JSON payload that strictly follows the required schema for the invoices endpoint.
+- Added mapping for all required fields: `altId`, `businessDetails`, `items` (with `productId`/`priceId`), `contactDetails`, `lateFeesConfiguration`, `tipsConfiguration`, etc.
+- Implemented robust fallback logic for missing data, ensuring the request always succeeds even with partial input.
+- Added support for passing the full `contact` object to `createInvoice` to populate `contactDetails` accurately.
+- Updated `ConnectionTester` to simulate the full payload structure during debug tests.
+
+### Files Modified
+- `src/services/ghl.ts` - Refactored `createInvoice` with new payload structure.
+- `src/screens/OrderScreens.tsx` - Updated `handleCompleteOrder` to pass full contact object.
+- `src/components/Debug/ConnectionTester.tsx` - Updated test harness with mock contact object.
+
+---
+
 ## 2026-01-12 (Order & Invoice Integration - Sequential Flow)
 
 ### Enhanced - Sequential Invoice & Opportunity Creation
