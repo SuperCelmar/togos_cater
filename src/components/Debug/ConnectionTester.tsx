@@ -3,9 +3,14 @@ import { supabase } from '../../lib/supabase';
 import { ghlService, ContactData, AddressData } from '../../services/ghl';
 
 export const ConnectionTester: React.FC = () => {
+  const VITE_N8N_WEBHOOK_URL = import.meta.env.VITE_N8N_WEBHOOK_URL as string | undefined;
+  const N8N_BASE_URL = VITE_N8N_WEBHOOK_URL?.endsWith('/')
+    ? VITE_N8N_WEBHOOK_URL.slice(0, -1)
+    : VITE_N8N_WEBHOOK_URL;
   const [loading, setLoading] = useState(false);
   const [logs, setLogs] = useState<string[]>([]);
   const [contactId, setContactId] = useState('');
+  const [cashbackBalance, setCashbackBalance] = useState('');
   const [formData, setFormData] = useState<ContactData>({
     firstName: 'Test',
     lastName: 'User',
@@ -251,6 +256,51 @@ export const ConnectionTester: React.FC = () => {
     }
   };
 
+  const handleUpdateCashbackBalance = async () => {
+    if (!N8N_BASE_URL) {
+      addLog('❌ Error: N8N_WEBHOOK_URL is not configured');
+      return;
+    }
+    if (!contactId) {
+      addLog('❌ Error: Please enter a Contact ID first');
+      return;
+    }
+    const parsedBalance = Number(cashbackBalance);
+    if (Number.isNaN(parsedBalance)) {
+      addLog('❌ Error: Please enter a valid balance (number only)');
+      return;
+    }
+    setLoading(true);
+    const payload = { contactId, balance: parsedBalance };
+    addLog('Updating Cashback Balance via n8n...', payload);
+    try {
+      const response = await fetch(`${N8N_BASE_URL}/cashback/sync`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      });
+      if (!response.ok) {
+        const errorText = await response.text().catch(() => response.statusText);
+        addLog(`❌ Cashback Balance Update Failed (${response.status})`, errorText);
+        return;
+      }
+      const contentType = response.headers.get('content-type');
+      if (contentType && contentType.includes('application/json')) {
+        const result = await response.json();
+        addLog('✅ Cashback Balance Update Result:', result);
+        return;
+      }
+      const textResult = await response.text();
+      addLog('✅ Cashback Balance Update Result:', textResult);
+    } catch (err: any) {
+      addLog('❌ Cashback Balance Update Error', err.message || err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <div className="p-4 space-y-6 max-w-4xl mx-auto">
       <div className="bg-white dark:bg-zinc-900 rounded-xl p-6 shadow-sm border border-slate-200 dark:border-slate-800">
@@ -296,6 +346,16 @@ export const ConnectionTester: React.FC = () => {
               />
             </div>
             
+            <div className="pt-2 border-t dark:border-zinc-700">
+              <label className="text-xs font-bold text-slate-400 uppercase">Cashback Balance Test</label>
+              <input
+                className="w-full p-2 border rounded dark:bg-zinc-800 dark:border-zinc-700 mt-1"
+                placeholder="Balance (number only)"
+                value={cashbackBalance}
+                onChange={e => setCashbackBalance(e.target.value)}
+              />
+            </div>
+
             <div className="pt-2 border-t dark:border-zinc-700">
               <label className="text-xs font-bold text-slate-400 uppercase">Address Test Data</label>
               <input
@@ -375,6 +435,13 @@ export const ConnectionTester: React.FC = () => {
               className="w-full py-2 px-4 bg-orange-600 text-white rounded hover:bg-orange-700 disabled:opacity-50 font-medium"
             >
               Update GHL Address
+            </button>
+            <button
+              onClick={handleUpdateCashbackBalance}
+              disabled={loading || !contactId}
+              className="w-full py-2 px-4 bg-lime-600 text-white rounded hover:bg-lime-700 disabled:opacity-50 font-medium"
+            >
+              Update Cashback Balance (n8n)
             </button>
             <button
               onClick={handleTestCreateOrder}

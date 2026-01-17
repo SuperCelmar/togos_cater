@@ -38,7 +38,11 @@ import {
   InvoicesScreen, 
   ScheduledOrdersScreen,
   LoyaltyScreen,
-  AddressManagementScreen
+  AddressManagementScreen,
+  ProfileEditScreen,
+  PaymentMethodsScreen,
+  ContactUsScreen,
+  FaqsScreen
 } from './screens/ManagementScreens';
 
 // Debug Screen
@@ -79,6 +83,10 @@ export const AppRoutes: React.FC = () => {
       <Route path="/account/addresses" element={<AddressManagementScreen />} />
       <Route path="/account/loyalty" element={<LoyaltyScreen />} />
       <Route path="/account/scheduled" element={<ScheduledOrdersScreen />} />
+      <Route path="/account/profile" element={<ProfileEditScreen />} />
+      <Route path="/account/payments" element={<PaymentMethodsScreen />} />
+      <Route path="/account/support" element={<ContactUsScreen />} />
+      <Route path="/account/faqs" element={<FaqsScreen />} />
       <Route path="/invoices" element={<InvoicesScreen />} />
       
       {/* Debug Route */}

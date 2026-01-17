@@ -1,5 +1,180 @@
 # Changelog
 
+## 2026-01-17 (Account Feature Wiring)
+
+### Added - Account Profile and Help Flows
+- Added account profile edit screen with GHL profile update sync
+- Added payment methods placeholder screen with CTA
+- Added Contact Us and FAQs screens for support and self-help
+
+### Added - Delivery Address Management
+- Added edit/save/delete flows for delivery addresses with GHL sync and local persistence
+
+### Added - Scheduled Orders Builder
+- Added scheduled orders list and create flow stored in localStorage
+
+### Files Modified
+- `src/screens/HomeScreens.tsx` - Wired account buttons to new routes
+- `src/screens/ManagementScreens.tsx` - Added profile, payments, support, FAQs, scheduling, and address management
+- `src/routes.tsx` - Added account routes for new screens
+- `src/services/ghl.ts` - Added contact profile update method
+- `src/lib/storage.ts` - Added scheduled orders storage helpers
+- `src/context/AppContext.tsx` - Added delivery details clear helper
+
+## 2026-01-17 (Menu Header Consistency)
+
+### Fixed - Menu Cart Badge + Header Alignment
+- Added cart item count badge to the /menu header cart icon (sum of quantities)
+- Standardized header sizing/typography across Menu, Category, Orders, and Account to match /home
+
+### Files Modified
+- `src/screens/HomeScreens.tsx` - Menu/category headers updated and cart badge added; account header aligned
+- `src/screens/ManagementScreens.tsx` - Orders header aligned to home sizing
+
+## 2026-01-17 (Home Reorder Cart Loading)
+
+### Fixed - Reorder Modify Loads Items into Cart
+- Home Reorder now opens Modify Reorder for the latest order via the order ID
+- Modify Reorder resolves the order by ID (context or fetch) and hydrates items
+- Clicking the Items section loads all reorder items into the cart and routes to Cart
+
+### Files Modified
+- `src/screens/HomeScreens.tsx` - Set selected order and navigate via order ID
+- `src/screens/ManagementScreens.tsx` - Resolve order and load cart from items
+
+## 2026-01-17 (Reorder Delivery Fee Fix)
+
+### Fixed - Exclude Delivery Fee Line Items on Reorder
+- Filtered reorder items to remove delivery fee line items before adding to cart
+- Ensures checkout only applies the delivery fee once
+
+### Files Modified
+- `src/screens/ManagementScreens.tsx` - Filtered delivery fee items in reorder flow
+
+## 2026-01-17 (Orders Cache Refresh)
+
+### Added - Orders Cache + One-Time Refresh
+- Persisted orders cache and refresh flag in localStorage
+- Home uses cached last order and only re-fetches once when orders change
+- Orders screen adds manual refresh with change detection before updating cache
+
+### Files Modified
+- `src/lib/storage.ts` - Added orders cache and refresh flag helpers
+- `src/context/AppContext.tsx` - Hydrated/persisted orders + refresh flag
+- `src/screens/ManagementScreens.tsx` - Manual refresh + change detection
+- `src/screens/HomeScreens.tsx` - Cached last order with one-time refresh
+
+## 2026-01-17 (Cashback Sync via n8n)
+
+### Updated - Cashback Sync Endpoint
+- Updated cashback sync to call n8n `/cashback/sync` endpoint instead of `/contacts/update`
+- Removed dependency on `VITE_GHL_LOYALTY_FIELD_ID` in the frontend
+- n8n now owns mapping to the GHL custom field ID
+
+### Files Modified
+- `src/lib/cashbackService.ts` - Updated sync logic to use n8n `/cashback/sync`
+
+## 2026-01-17 (Debug Cashback Sync Test)
+
+### Added - n8n Cashback Balance Debug Test
+- Added debug input for cashback balance and a test action to send `{ contactId, balance }` to n8n
+- Added new debug action button: "Update Cashback Balance (n8n)"
+- Uses `VITE_N8N_WEBHOOK_URL` base with `/cashback/sync` endpoint for middleware handling
+
+### Files Modified
+- `src/components/Debug/ConnectionTester.tsx` - Added cashback balance test input and action
+
+## 2026-01-16 (Cashback System Migration Applied)
+
+### Completed - Database Migration Applied
+- Applied `cashback_system` migration to Supabase project `vmvyzcdmkfsktfsbbzic`
+- Migration applied via Supabase MCP using `apply_migration` tool
+- Created `cashback_transactions` table with RLS policies enabled
+- Created `cashback_balances` view for computed balance calculations
+- Migration version: `20260116155153`
+- Updated RLS policies to work with existing schema (removed reference to non-existent `user_sessions` table)
+- Verified table and view creation successfully
+
+### Files Modified
+- `docs/Cashback_System_Rundown.md` - Updated migration status to complete
+
+## 2026-01-15 (Cashback System Implementation)
+
+### Added - Complete Cashback System with Ledger & GHL Sync
+
+**Database Layer:**
+- Created `cashback_transactions` table in Supabase for complete transaction ledger
+- Migration file: `docs/supabase_migrations/cashback_system.sql`
+- Balance calculated from ledger (source of truth), never stored directly
+- RLS policies for secure access
+
+**Service Layer:**
+- Created `src/lib/cashbackService.ts` with full cashback operations:
+  - `getCashbackBalance()` - Calculates balance from transaction ledger
+  - `earnCashback()` - Records 5% earnings on order completion
+  - `redeemCashback()` - Records redemption when applied at checkout
+  - `getCashbackHistory()` - Fetches transaction history for display
+  - `syncCashbackToGHL()` - Syncs balance to GHL custom field
+
+**GHL Integration:**
+- Added `ghlService.updateContactCustomField()` method for custom field updates
+- Cashback balance automatically synced to GHL after every transaction
+- Requires `VITE_GHL_LOYALTY_FIELD_ID` environment variable
+
+**UI Integration:**
+- Balance loads automatically on session initialization (`AppContext`)
+- Checkout screen (`OrderScreens.tsx`):
+  - Shows cashback application checkbox when balance > 0
+  - Applies cashback discount to order total
+  - Records redemption transaction after invoice creation
+  - Records earnings transaction (5% of order total)
+- Loyalty screen (`ManagementScreens.tsx`):
+  - Displays transaction history from ledger (not calculated from orders)
+  - Shows earned (green) and redeemed (red) transactions
+  - Includes order/invoice references and timestamps
+- Order success screen shows earned cashback amount
+
+**Documentation:**
+- Created `docs/Cashback_System.md` with complete system documentation
+- Updated `docs/Features_API_connection.md` with cashback implementation details
+- Includes architecture, data flow, usage examples, and setup instructions
+
+**Key Features:**
+- 5% cashback on every completed order
+- Cashback can be redeemed at checkout to reduce order total
+- Complete audit trail with order/invoice links
+- Balance persists across sessions via Supabase ledger
+- GHL sync ensures marketing emails show correct balance
+
+**Files Created:**
+- `src/lib/cashbackService.ts` - Core cashback service
+- `docs/supabase_migrations/cashback_system.sql` - Database migration
+- `docs/Cashback_System.md` - System documentation
+
+**Files Modified:**
+- `src/context/AppContext.tsx` - Added balance loading on session init
+- `src/screens/OrderScreens.tsx` - Added cashback redemption and earnings logic
+- `src/screens/ManagementScreens.tsx` - Updated to use ledger for history
+- `src/services/ghl.ts` - Added custom field update method
+- `docs/Features_API_connection.md` - Updated loyalty system section
+
+**Setup Required:**
+1. Run Supabase migration: `docs/supabase_migrations/cashback_system.sql`
+2. Create GHL custom field for loyalty balance
+3. Add `VITE_GHL_LOYALTY_FIELD_ID` to environment variables
+
+## 2026-01-15 (Invoice PDF Link Fix)
+
+### Fixed - Invoice PDF Download Links
+- Updated invoice download buttons to use GHL hosted invoice page at `https://link.togos.app/invoice/{invoice_id}` instead of n8n webhook endpoint
+- Removed "Download Receipt (PDF)" button from order details screen since receipts are sent automatically when payment is made
+- Updated "Download Invoice (PDF)" button in `ManagementScreens.tsx` to open GHL hosted invoice page
+- Updated "Check invoice" button in `OrderScreens.tsx` to use correct invoice URL format
+
+### Files Modified
+- `src/screens/ManagementScreens.tsx` - Fixed invoice URL and removed receipt button
+- `src/screens/OrderScreens.tsx` - Fixed invoice URL in order success screen
+
 ## 2026-01-15 (Catering Items CSV Export)
 
 ### Added - CSV Export of Catering Items

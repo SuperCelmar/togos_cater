@@ -8,10 +8,17 @@ import {
   saveContactSession,
   getDeliveryAddress,
   saveDeliveryAddress,
-  clearDeliveryAddress
+  clearDeliveryAddress,
+  getOrdersCache,
+  saveOrdersCache,
+  clearOrdersCache,
+  getOrdersRefreshPending,
+  setOrdersRefreshPending,
+  clearOrdersRefreshPending
 } from '../lib/storage';
 import { supabase } from '../lib/supabase';
 import { ghlService } from '../services/ghl';
+import { getCashbackBalance } from '../lib/cashbackService';
 
 // ... (rest of imports and interfaces)
 
@@ -50,6 +57,7 @@ export interface AppState {
   // Orders
   orders: GHLOrder[];
   selectedOrder: GHLOrder | null;
+  homeOrdersRefreshPending: boolean;
 }
 
 // Context value interface
@@ -65,6 +73,7 @@ export interface AppContextValue extends AppState {
   // Order flow actions
   setGuestCount: (count: number) => void;
   setDeliveryDetails: (details: DeliveryDetails) => void;
+  clearDeliveryDetails: () => void;
   
   // Cart actions
   addToCart: (item: CartItem) => void;
@@ -79,6 +88,7 @@ export interface AppContextValue extends AppState {
   // Order actions
   setOrders: (orders: GHLOrder[]) => void;
   setSelectedOrder: (order: GHLOrder | null) => void;
+  setHomeOrdersRefreshPending: (pending: boolean) => void;
 }
 
 const defaultState: AppState = {
@@ -93,6 +103,7 @@ const defaultState: AppState = {
   cashbackBalance: 0,
   orders: [],
   selectedOrder: null,
+  homeOrdersRefreshPending: false,
 };
 
 const AppContext = createContext<AppContextValue | null>(null);
@@ -111,6 +122,26 @@ interface AppContextProviderProps {
 
 export const AppContextProvider: React.FC<AppContextProviderProps> = ({ children }) => {
   const [state, setState] = useState<AppState>(defaultState);
+
+  // Load cashback balance when contactId changes
+  useEffect(() => {
+    const loadCashbackBalance = async () => {
+      if (!state.contactId) {
+        setState(prev => ({ ...prev, cashbackBalance: 0 }));
+        return;
+      }
+
+      try {
+        const balance = await getCashbackBalance(state.contactId);
+        setState(prev => ({ ...prev, cashbackBalance: balance }));
+      } catch (error) {
+        console.error('[AppContext] Failed to load cashback balance:', error);
+        setState(prev => ({ ...prev, cashbackBalance: 0 }));
+      }
+    };
+
+    loadCashbackBalance();
+  }, [state.contactId]);
 
   // Initialize session from localStorage on mount
   useEffect(() => {
@@ -206,6 +237,28 @@ export const AppContextProvider: React.FC<AppContextProviderProps> = ({ children
     initializeSession();
   }, []);
 
+  // Hydrate cached orders and refresh flag when contactId changes
+  useEffect(() => {
+    if (!state.contactId) {
+      setState(prev => ({
+        ...prev,
+        orders: [],
+        selectedOrder: null,
+        homeOrdersRefreshPending: false,
+      }));
+      return;
+    }
+
+    const cachedOrders = getOrdersCache<GHLOrder>(state.contactId);
+    const refreshPending = getOrdersRefreshPending(state.contactId);
+
+    setState(prev => ({
+      ...prev,
+      orders: prev.orders.length > 0 ? prev.orders : (cachedOrders || []),
+      homeOrdersRefreshPending: refreshPending,
+    }));
+  }, [state.contactId]);
+
   // Session actions
   const setContactSession = useCallback((contactId: string, contact: GHLContact | null, sessionId?: string) => {
     saveContactSession(contactId, sessionId);
@@ -236,6 +289,10 @@ export const AppContextProvider: React.FC<AppContextProviderProps> = ({ children
   }, []);
 
   const clearSession = useCallback(() => {
+    if (state.contactId) {
+      clearOrdersCache(state.contactId);
+      clearOrdersRefreshPending(state.contactId);
+    }
     clearContactSession();
     clearDeliveryAddress();
     setState(prev => ({
@@ -246,10 +303,12 @@ export const AppContextProvider: React.FC<AppContextProviderProps> = ({ children
       email: null,
       deliveryDetails: null,
       cartItems: [],
+      cashbackBalance: 0,
       orders: [],
       selectedOrder: null,
+      homeOrdersRefreshPending: false,
     }));
-  }, []);
+  }, [state.contactId]);
 
   // Auth actions
   const setPhone = useCallback((phone: string) => {
@@ -273,6 +332,11 @@ export const AppContextProvider: React.FC<AppContextProviderProps> = ({ children
       zip: deliveryDetails.zip,
     });
     setState(prev => ({ ...prev, deliveryDetails }));
+  }, []);
+
+  const clearDeliveryDetails = useCallback(() => {
+    clearDeliveryAddress();
+    setState(prev => ({ ...prev, deliveryDetails: null }));
   }, []);
 
   // Cart actions
@@ -341,11 +405,21 @@ export const AppContextProvider: React.FC<AppContextProviderProps> = ({ children
   // Order actions
   const setOrders = useCallback((orders: GHLOrder[]) => {
     setState(prev => ({ ...prev, orders }));
-  }, []);
+    if (state.contactId) {
+      saveOrdersCache(state.contactId, orders);
+    }
+  }, [state.contactId]);
 
   const setSelectedOrder = useCallback((selectedOrder: GHLOrder | null) => {
     setState(prev => ({ ...prev, selectedOrder }));
   }, []);
+
+  const setHomeOrdersRefreshPending = useCallback((pending: boolean) => {
+    setState(prev => ({ ...prev, homeOrdersRefreshPending: pending }));
+    if (state.contactId) {
+      setOrdersRefreshPending(state.contactId, pending);
+    }
+  }, [state.contactId]);
 
   const value: AppContextValue = {
     ...state,
@@ -355,6 +429,7 @@ export const AppContextProvider: React.FC<AppContextProviderProps> = ({ children
     setEmail,
     setGuestCount,
     setDeliveryDetails,
+    clearDeliveryDetails,
     addToCart,
     updateCartItemQuantity,
     removeFromCart,
@@ -363,6 +438,7 @@ export const AppContextProvider: React.FC<AppContextProviderProps> = ({ children
     setCashbackBalance,
     setOrders,
     setSelectedOrder,
+    setHomeOrdersRefreshPending,
   };
 
   return (

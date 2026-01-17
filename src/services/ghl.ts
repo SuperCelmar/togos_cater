@@ -319,6 +319,161 @@ export const ghlService = {
   },
 
   /**
+   * Update contact profile details (name, email, phone, address, etc.)
+   * Preserves existing fields and only updates provided values.
+   */
+  async updateContactProfile(contactId: string, updates: ContactUpdateData) {
+    if (!N8N_BASE_URL) throw new Error('N8N_WEBHOOK_URL is not configured');
+
+    // Fetch existing contact to preserve all fields
+    let existingContact: any = {};
+    try {
+      const profileResponse = await this.getContactProfile(contactId);
+      existingContact = profileResponse.contact || profileResponse || {};
+    } catch (error) {
+      throw new Error(`Failed to fetch existing contact: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+
+    const basePayload: ContactUpdateData = {
+      firstName: existingContact.firstName || null,
+      lastName: existingContact.lastName || null,
+      name: existingContact.name || existingContact.firstName && existingContact.lastName 
+        ? `${existingContact.firstName} ${existingContact.lastName}`.trim() 
+        : null,
+      email: existingContact.email || null,
+      phone: existingContact.phone || null,
+      website: existingContact.website || null,
+      timezone: existingContact.timezone || null,
+      dnd: existingContact.dnd,
+      dndSettings: existingContact.dndSettings,
+      inboundDndSettings: existingContact.inboundDndSettings,
+      tags: existingContact.tags || [],
+      customFields: existingContact.customFields || [],
+      source: existingContact.source || null,
+      dateOfBirth: existingContact.dateOfBirth || null,
+      country: existingContact.country || 'US',
+      assignedTo: existingContact.assignedTo || null,
+      address1: existingContact.address1 || null,
+      city: existingContact.city || null,
+      state: existingContact.state || null,
+      postalCode: existingContact.postalCode || null,
+    };
+
+    const mergedPayload: ContactUpdateData = {
+      ...basePayload,
+      ...updates,
+    };
+
+    if (updates.phone !== undefined) {
+      mergedPayload.phone = updates.phone ? formatPhoneE164(updates.phone) : null;
+    }
+
+    if ((updates.firstName !== undefined || updates.lastName !== undefined) && updates.name === undefined) {
+      const nextFirst = updates.firstName !== undefined ? updates.firstName || '' : basePayload.firstName || '';
+      const nextLast = updates.lastName !== undefined ? updates.lastName || '' : basePayload.lastName || '';
+      const nextName = `${nextFirst} ${nextLast}`.trim();
+      mergedPayload.name = nextName || null;
+    }
+
+    const response = await fetch(`${N8N_BASE_URL}/contacts/update?contactId=${encodeURIComponent(contactId)}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(mergedPayload),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text().catch(() => response.statusText);
+      throw new Error(`Failed to update contact profile: ${response.status} ${errorText}`);
+    }
+
+    return response.json();
+  },
+
+  /**
+   * Update contact custom field (e.g., loyalty balance)
+   */
+  async updateContactCustomField(contactId: string, fieldId: string, value: any) {
+    if (!N8N_BASE_URL) throw new Error('N8N_WEBHOOK_URL is not configured');
+
+    // Fetch existing contact to preserve all fields
+    let existingContact: any = {};
+    try {
+      const profileResponse = await this.getContactProfile(contactId);
+      existingContact = profileResponse.contact || profileResponse || {};
+    } catch (error) {
+      throw new Error(`Failed to fetch existing contact: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+
+    // Get existing custom fields
+    const existingCustomFields = existingContact.customFields || [];
+    
+    // Find if field already exists and update it, otherwise add it
+    const fieldIndex = existingCustomFields.findIndex((cf: any) => 
+      cf.id === fieldId || cf.fieldId === fieldId || cf.key === fieldId
+    );
+
+    let updatedCustomFields;
+    if (fieldIndex >= 0) {
+      // Update existing field
+      updatedCustomFields = [...existingCustomFields];
+      updatedCustomFields[fieldIndex] = {
+        ...updatedCustomFields[fieldIndex],
+        value: value,
+      };
+    } else {
+      // Add new field
+      updatedCustomFields = [
+        ...existingCustomFields,
+        { id: fieldId, value: value }
+      ];
+    }
+
+    // Build update payload
+    const updatePayload: ContactUpdateData = {
+      firstName: existingContact.firstName || null,
+      lastName: existingContact.lastName || null,
+      name: existingContact.name || (existingContact.firstName && existingContact.lastName 
+        ? `${existingContact.firstName} ${existingContact.lastName}`.trim() 
+        : null),
+      email: existingContact.email || null,
+      phone: existingContact.phone || null,
+      website: existingContact.website || null,
+      timezone: existingContact.timezone || null,
+      dnd: existingContact.dnd,
+      dndSettings: existingContact.dndSettings,
+      inboundDndSettings: existingContact.inboundDndSettings,
+      tags: existingContact.tags || [],
+      customFields: updatedCustomFields,
+      source: existingContact.source || null,
+      dateOfBirth: existingContact.dateOfBirth || null,
+      country: existingContact.country || 'US',
+      assignedTo: existingContact.assignedTo || null,
+      address1: existingContact.address1 || null,
+      city: existingContact.city || null,
+      state: existingContact.state || null,
+      postalCode: existingContact.postalCode || null,
+    };
+
+    // Send update request
+    const response = await fetch(`${N8N_BASE_URL}/contacts/update?contactId=${encodeURIComponent(contactId)}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(updatePayload),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text().catch(() => response.statusText);
+      throw new Error(`Failed to update custom field: ${response.status} ${errorText}`);
+    }
+
+    return response.json();
+  },
+
+  /**
    * Get orders by contact ID
    * Returns list of past orders/transactions for a contact
    */

@@ -4,6 +4,7 @@ import { useAppContext, SelectedItem } from '../context/AppContext';
 import { CartItem } from '../../types';
 import { ghlService } from '../services/ghl';
 import { formatPrice, getServesText, calculateRecommendedQuantity } from '../lib/menuService';
+import { earnCashback, redeemCashback, getCashbackBalance } from '../lib/cashbackService';
 
 // Default placeholder image
 const PLACEHOLDER_IMAGE = 'https://lh3.googleusercontent.com/aida-public/AB6AXuCVUfzu5A_5qtIWFCJ1BbSQFKtgwjv9VTjyMoJv-Jcb-ih6a_9CKgn4PAXoGtO75BRbE_D7Dgzg1nZdqZFk0irFahjC4LGUnvMxtr7YrZNFF0F8Fl5SxQiAcBvMnlFRMezskYmFLgYtsi1a8rsOoj0z1DxlVS3WWTGK2w7bDHi7KUNE18eAlXR5bBxvf6CvxQ5M1V982aC2nIGaLJuPfGo7QXwbelShfccxf_fvHKnlmvBcbZtZJpXWbg-Rfqv5rGZDJXNhUhcSmYY';
@@ -314,12 +315,14 @@ export const CheckoutScreen: React.FC = () => {
     
     const [isProcessing, setIsProcessing] = useState(false);
     const [paymentMethod, setPaymentMethod] = useState<'card' | 'invoice'>('card');
+    const [applyCashback, setApplyCashback] = useState(cashbackBalance > 0);
 
     // Calculate total
     const subtotal = cartItems.reduce((sum, item) => sum + (item.price * item.quantity), 0);
     const tax = subtotal * 0.08;
     const deliveryFee = subtotal > 0 ? 15 : 0;
-    const total = subtotal + tax + deliveryFee;
+    const cashbackDiscount = applyCashback ? Math.min(cashbackBalance, subtotal) : 0;
+    const total = subtotal + tax + deliveryFee - cashbackDiscount;
 
     // Get default company name from contact
     const defaultCompanyName = contact?.companyName || contact?.name || 
@@ -354,7 +357,7 @@ export const CheckoutScreen: React.FC = () => {
             let createdInvoiceId: string | undefined;
 
             try {
-                // Step A: Create Invoice
+                // Step A: Create Invoice (total already includes cashback discount)
                 const invoiceResult = await ghlService.createInvoice({
                     contactId,
                     contact, // Pass the full contact object
@@ -368,7 +371,7 @@ export const CheckoutScreen: React.FC = () => {
                     subtotal,
                     tax,
                     deliveryFee,
-                    total,
+                    total, // This is the final total after cashback discount
                     paymentMethod,
                     companyName: invoiceCompanyName,
                     deliveryDetails: {
@@ -416,19 +419,59 @@ export const CheckoutScreen: React.FC = () => {
                 // but in production we might want to handle this differently
             }
 
-            // 3. Update Loyalty/Cashback
-            const cashbackEarned = total * 0.05;
-            const newCashbackBalance = cashbackBalance + cashbackEarned;
-            setCashbackBalance(newCashbackBalance);
+            // 3. Handle cashback redemption if applicable (after invoice creation)
+            let redeemedAmount = 0;
+            if (applyCashback && cashbackDiscount > 0 && createdInvoiceId) {
+                try {
+                    const redeemed = await redeemCashback(
+                        contactId,
+                        cashbackDiscount,
+                        undefined, // orderId - could be set if we have it
+                        createdInvoiceId
+                    );
+                    if (redeemed) {
+                        redeemedAmount = cashbackDiscount;
+                        // Reload balance to reflect redemption
+                        const updatedBalance = await getCashbackBalance(contactId);
+                        setCashbackBalance(updatedBalance);
+                    }
+                } catch (cashbackError) {
+                    console.error('Failed to redeem cashback:', cashbackError);
+                    // Continue even if cashback redemption fails
+                }
+            }
+
+            // 4. Record cashback earnings (5% of order total before cashback discount)
+            // Note: We earn on the original order total, not the discounted amount
+            const orderTotalBeforeDiscount = subtotal + tax + deliveryFee;
+            const cashbackEarned = orderTotalBeforeDiscount * 0.05;
+            
+            try {
+                await earnCashback(
+                    contactId,
+                    orderTotalBeforeDiscount,
+                    undefined, // orderId - could be set if we have it
+                    createdInvoiceId
+                );
+                // Reload balance to reflect earnings
+                const updatedBalance = await getCashbackBalance(contactId);
+                setCashbackBalance(updatedBalance);
+            } catch (cashbackError) {
+                console.error('Failed to record cashback earnings:', cashbackError);
+                // Continue even if cashback recording fails
+            }
             
             // 4. Clear cart and navigate
             clearCart();
 
+            // Get final balance for display
+            const finalBalance = await getCashbackBalance(contactId);
+            
             navigate('/success', { 
               state: { 
                 orderTotal: total,
                 cashbackEarned,
-                newCashbackBalance,
+                newCashbackBalance: finalBalance,
                 items: cartItems,
                 deliveryDetails,
                 invoiceId: createdInvoiceId 
@@ -459,6 +502,46 @@ export const CheckoutScreen: React.FC = () => {
                 </div>
             </header>
             <main className="flex-1 overflow-y-auto pb-32 no-scrollbar">
+                {/* Order Summary */}
+                <div className="px-4 pt-6">
+                    <h2 className="text-[#181111] dark:text-white text-[22px] font-bold leading-tight tracking-[-0.015em] mb-3">Order Summary</h2>
+                    <div className="bg-white dark:bg-[#2a1a1a] rounded-xl p-4 shadow-sm space-y-3">
+                        <div className="flex justify-between text-sm">
+                            <span className="text-gray-500">Subtotal</span>
+                            <span className="text-[#181111] dark:text-white">{formatPrice(subtotal)}</span>
+                        </div>
+                        <div className="flex justify-between text-sm">
+                            <span className="text-gray-500">Tax (8%)</span>
+                            <span className="text-[#181111] dark:text-white">{formatPrice(tax)}</span>
+                        </div>
+                        <div className="flex justify-between text-sm">
+                            <span className="text-gray-500">Delivery Fee</span>
+                            <span className="text-[#181111] dark:text-white">{formatPrice(deliveryFee)}</span>
+                        </div>
+                        {cashbackBalance > 0 && (
+                            <div className="flex items-center justify-between py-2 px-3 bg-primary/10 dark:bg-primary/20 rounded-lg">
+                                <div className="flex items-center gap-3">
+                                    <input 
+                                        checked={applyCashback}
+                                        onChange={(e) => setApplyCashback(e.target.checked)}
+                                        className="rounded border-primary text-primary focus:ring-primary h-5 w-5" 
+                                        type="checkbox"
+                                    />
+                                    <span className="text-sm font-medium text-primary">Apply {formatPrice(cashbackBalance)} Cashback?</span>
+                                </div>
+                                {applyCashback && (
+                                    <span className="text-primary font-bold">-{formatPrice(cashbackDiscount)}</span>
+                                )}
+                            </div>
+                        )}
+                        <div className="h-px bg-gray-100 dark:bg-white/10 pt-1"></div>
+                        <div className="flex justify-between items-center pt-2">
+                            <span className="text-lg font-bold">Total</span>
+                            <span className="text-2xl font-black text-primary">{formatPrice(total)}</span>
+                        </div>
+                    </div>
+                </div>
+                
                 <div className="px-4 pt-6">
                     <h2 className="text-[#181111] dark:text-white text-[22px] font-bold leading-tight tracking-[-0.015em]">Payment Method</h2>
                 </div>
@@ -628,9 +711,7 @@ export const OrderSuccessScreen: React.FC = () => {
                 <button 
                     onClick={() => {
                         if (orderState?.invoiceId) {
-                            const baseUrl = import.meta.env.VITE_N8N_WEBHOOK_URL?.replace(/\/$/, '');
-                            // User specified clicking calls /invoice_pdf endpoint
-                            window.open(`${baseUrl}/invoice_pdf?invoice_id=${orderState.invoiceId}`, '_blank');
+                            window.open(`https://link.togos.app/invoice/${orderState.invoiceId}`, '_blank');
                         }
                     }}
                     className="w-full py-3 text-gray-500 font-bold text-sm"

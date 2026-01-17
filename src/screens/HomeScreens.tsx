@@ -46,33 +46,75 @@ function getContactInfo(contact?: GHLContact | null): string {
 
 export const HomeScreen: React.FC = () => {
   const navigate = useNavigate();
-  const { contact, contactId, cashbackBalance } = useAppContext();
+  const { 
+    contact, 
+    contactId, 
+    cashbackBalance, 
+    orders, 
+    setOrders, 
+    setSelectedOrder,
+    homeOrdersRefreshPending,
+    setHomeOrdersRefreshPending
+  } = useAppContext();
   const [lastOrder, setLastOrder] = useState<GHLOrder | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [hasAttemptedFetch, setHasAttemptedFetch] = useState(false);
   
   const displayName = getDisplayName(contact);
 
   useEffect(() => {
-    async function fetchLastOrder() {
-      if (!contactId) {
-        setIsLoading(false);
-        return;
-      }
+    if (!contactId) {
+      setLastOrder(null);
+      setIsLoading(false);
+      return;
+    }
+
+    if (orders.length > 0) {
+      setLastOrder(orders[0]);
+      setIsLoading(false);
+    } else if (!homeOrdersRefreshPending && hasAttemptedFetch) {
+      setIsLoading(false);
+    }
+  }, [contactId, orders, homeOrdersRefreshPending, hasAttemptedFetch]);
+
+  useEffect(() => {
+    async function fetchLastOrderOnce() {
+      if (!contactId) return;
+
+      const shouldFetch = homeOrdersRefreshPending || (orders.length === 0 && !hasAttemptedFetch);
+      if (!shouldFetch) return;
+
+      setIsLoading(true);
+      setHasAttemptedFetch(true);
 
       try {
-        const orders = await ghlService.getOrdersByContactId(contactId);
-        if (orders && orders.length > 0) {
-          setLastOrder(orders[0]);
+        const data = await ghlService.getOrdersByContactId(contactId);
+        const nextOrders = data || [];
+
+        if (nextOrders.length > 0) {
+          setLastOrder(nextOrders[0]);
         }
+
+        setOrders(nextOrders);
       } catch (error) {
         console.error('Failed to fetch orders:', error);
       } finally {
+        if (homeOrdersRefreshPending) {
+          setHomeOrdersRefreshPending(false);
+        }
         setIsLoading(false);
       }
     }
 
-    fetchLastOrder();
-  }, [contactId]);
+    fetchLastOrderOnce();
+  }, [
+    contactId,
+    homeOrdersRefreshPending,
+    orders.length,
+    hasAttemptedFetch,
+    setOrders,
+    setHomeOrdersRefreshPending
+  ]);
 
   return (
     <div className="relative flex h-screen w-full max-w-md mx-auto flex-col bg-white dark:bg-background-dark shadow-2xl overflow-hidden">
@@ -110,7 +152,14 @@ export const HomeScreen: React.FC = () => {
                     </p>
                  </div>
                  <button 
-                   onClick={() => navigate(lastOrder ? '/reorder/modify' : '/menu')} 
+                   onClick={() => {
+                     if (lastOrder) {
+                       setSelectedOrder(lastOrder);
+                       navigate(`/orders/${lastOrder.id}/reorder/modify`);
+                       return;
+                     }
+                     navigate('/menu');
+                   }} 
                    className="bg-primary hover:bg-primary-hover text-white px-5 py-2.5 rounded-xl font-bold text-sm shadow-lg shadow-primary/20 active:scale-95 transition-all"
                  >
                     {lastOrder ? 'Reorder' : 'Start Order'}
@@ -149,10 +198,12 @@ export const HomeScreen: React.FC = () => {
 
 export const MenuScreen: React.FC = () => {
     const navigate = useNavigate();
-    const { guestCount } = useAppContext();
+    const { guestCount, cartItems } = useAppContext();
     const [categories, setCategories] = useState<MenuCategory[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+
+    const totalCartItems = cartItems.reduce((sum, item) => sum + item.quantity, 0);
 
     useEffect(() => {
         async function fetchCategories() {
@@ -177,17 +228,20 @@ export const MenuScreen: React.FC = () => {
 
     return (
         <div className="bg-background-light dark:bg-background-dark h-screen flex flex-col w-full max-w-md mx-auto shadow-2xl overflow-hidden">
-            <header className="sticky top-0 z-50 bg-white dark:bg-background-dark border-b border-[#f4f0f0] dark:border-[#3a2a2a] shrink-0">
-                <div className="flex items-center p-4 justify-between">
-                    <div className="flex-1">
-                        <h2 className="text-[#181111] dark:text-white text-xl font-bold leading-tight">Catering Menu</h2>
-                        {guestCount && (
-                            <p className="text-xs text-primary font-medium">Building order for {guestCount} people</p>
-                        )}
-                    </div>
-                    <div onClick={() => navigate('/cart')} className="flex w-12 items-center justify-end cursor-pointer">
-                        <span className="material-symbols-outlined">shopping_bag</span>
-                    </div>
+            <header className="flex items-center bg-white dark:bg-background-dark p-4 pb-2 justify-between sticky top-0 z-10 border-b border-gray-100 dark:border-gray-800 shrink-0">
+                <div className="flex flex-col flex-1">
+                    <p className="text-xs text-gray-500 font-bold uppercase tracking-wider">
+                        {guestCount ? `Building order for ${guestCount} people` : 'Catering'}
+                    </p>
+                    <h2 className="text-[#181111] dark:text-white text-lg font-extrabold leading-tight">Catering Menu</h2>
+                </div>
+                <div onClick={() => navigate('/cart')} className="relative w-10 h-10 flex items-center justify-center cursor-pointer">
+                    <span className="material-symbols-outlined">shopping_bag</span>
+                    {totalCartItems > 0 && (
+                        <span className="absolute -top-1 -right-1 w-5 h-5 bg-primary text-white text-xs font-bold rounded-full flex items-center justify-center">
+                            {totalCartItems > 99 ? '99+' : totalCartItems}
+                        </span>
+                    )}
                 </div>
             </header>
             <main className="flex-1 overflow-y-auto no-scrollbar">
@@ -306,25 +360,23 @@ export const CategoryDetailScreen: React.FC = () => {
 
     return (
         <div className="bg-background-light dark:bg-background-dark h-screen flex flex-col w-full max-w-md mx-auto shadow-2xl overflow-hidden">
-            <header className="sticky top-0 z-50 bg-white dark:bg-background-dark border-b border-[#f4f0f0] dark:border-[#3a2a2a] shrink-0">
-                <div className="flex items-center p-4 justify-between">
-                    <button onClick={() => navigate(-1)} className="text-[#181111] dark:text-white flex items-center justify-center w-10 h-10 rounded-full hover:bg-gray-100 dark:hover:bg-white/10">
-                        <span className="material-symbols-outlined">arrow_back</span>
-                    </button>
-                    <div className="flex-1 text-center">
-                        <h2 className="text-[#181111] dark:text-white text-lg font-bold leading-tight">{categoryName}</h2>
-                        {guestCount && (
-                            <p className="text-xs text-primary font-medium">For {guestCount} people</p>
-                        )}
-                    </div>
-                    <div onClick={() => navigate('/cart')} className="relative flex w-10 items-center justify-center cursor-pointer">
-                        <span className="material-symbols-outlined">shopping_bag</span>
-                        {totalCartItems > 0 && (
-                            <span className="absolute -top-1 -right-1 w-5 h-5 bg-primary text-white text-xs font-bold rounded-full flex items-center justify-center">
-                                {totalCartItems > 99 ? '99+' : totalCartItems}
-                            </span>
-                        )}
-                    </div>
+            <header className="flex items-center bg-white dark:bg-background-dark p-4 pb-2 justify-between sticky top-0 z-10 border-b border-gray-100 dark:border-gray-800 shrink-0">
+                <button onClick={() => navigate(-1)} className="text-[#181111] dark:text-white flex items-center justify-center w-10 h-10 rounded-full hover:bg-gray-100 dark:hover:bg-white/10">
+                    <span className="material-symbols-outlined">arrow_back</span>
+                </button>
+                <div className="flex flex-col flex-1 px-2">
+                    <p className="text-xs text-gray-500 font-bold uppercase tracking-wider">
+                        {guestCount ? `For ${guestCount} people` : 'Catering'}
+                    </p>
+                    <h2 className="text-[#181111] dark:text-white text-lg font-extrabold leading-tight truncate">{categoryName}</h2>
+                </div>
+                <div onClick={() => navigate('/cart')} className="relative w-10 h-10 flex items-center justify-center cursor-pointer">
+                    <span className="material-symbols-outlined">shopping_bag</span>
+                    {totalCartItems > 0 && (
+                        <span className="absolute -top-1 -right-1 w-5 h-5 bg-primary text-white text-xs font-bold rounded-full flex items-center justify-center">
+                            {totalCartItems > 99 ? '99+' : totalCartItems}
+                        </span>
+                    )}
                 </div>
             </header>
             <main className="flex-1 overflow-y-auto no-scrollbar p-4 flex flex-col gap-4">
@@ -397,8 +449,14 @@ export const AccountScreen: React.FC = () => {
 
     return (
         <div className="bg-background-light dark:bg-background-dark font-display text-slate-900 dark:text-slate-100 antialiased h-screen flex flex-col overflow-hidden w-full max-w-md mx-auto shadow-2xl">
-            <header className="flex-none bg-white dark:bg-background-dark px-4 pt-4 pb-4 sticky top-0 z-20 shadow-sm dark:shadow-none dark:border-b dark:border-white/10">
-                <h1 className="text-xl font-bold tracking-tight w-full text-center">Account</h1>
+            <header className="flex items-center bg-white dark:bg-background-dark p-4 pb-2 justify-between sticky top-0 z-10 border-b border-gray-100 dark:border-gray-800 shrink-0">
+                <div className="flex flex-col">
+                    <p className="text-xs text-gray-500 font-bold uppercase tracking-wider">Account</p>
+                    <h1 className="text-[#181111] dark:text-white text-lg font-extrabold leading-tight">{displayName}</h1>
+                </div>
+                <div className="w-10 h-10 rounded-full bg-primary overflow-hidden border-2 border-white dark:border-gray-600 flex items-center justify-center">
+                    <span className="text-white font-bold text-lg">{displayName.charAt(0).toUpperCase()}</span>
+                </div>
             </header>
             <main className="flex-1 overflow-y-auto no-scrollbar pb-24 px-4 space-y-6 pt-4">
                 {/* Profile Section */}
@@ -409,7 +467,7 @@ export const AccountScreen: React.FC = () => {
                     <div>
                         <h2 className="text-lg font-bold text-slate-900 dark:text-white">{displayName}</h2>
                         <p className="text-slate-500 text-sm">{contactInfo || 'No contact info'}</p>
-                        <button className="text-primary text-xs font-bold mt-1">Edit Profile</button>
+                        <button onClick={() => navigate('/account/profile')} className="text-primary text-xs font-bold mt-1">Edit Profile</button>
                     </div>
                 </section>
 
@@ -431,7 +489,7 @@ export const AccountScreen: React.FC = () => {
                             <span className="font-medium">Delivery Addresses</span>
                             <span className="material-symbols-outlined text-gray-400">chevron_right</span>
                         </button>
-                         <button className="w-full flex items-center justify-between p-4 hover:bg-gray-50 dark:hover:bg-white/5 text-left">
+                         <button onClick={() => navigate('/account/payments')} className="w-full flex items-center justify-between p-4 hover:bg-gray-50 dark:hover:bg-white/5 text-left">
                             <span className="font-medium">Payment Methods</span>
                             <span className="material-symbols-outlined text-gray-400">chevron_right</span>
                         </button>
@@ -446,11 +504,11 @@ export const AccountScreen: React.FC = () => {
                 <div className="space-y-2">
                      <h3 className="font-bold text-lg px-1">Help</h3>
                      <div className="bg-white dark:bg-[#2a1a1a] rounded-xl overflow-hidden divide-y divide-gray-100 dark:divide-gray-800">
-                        <button className="w-full flex items-center justify-between p-4 hover:bg-gray-50 dark:hover:bg-white/5 text-left">
+                        <button onClick={() => navigate('/account/support')} className="w-full flex items-center justify-between p-4 hover:bg-gray-50 dark:hover:bg-white/5 text-left">
                             <span className="font-medium">Contact Us</span>
                             <span className="material-symbols-outlined text-gray-400">chevron_right</span>
                         </button>
-                        <button className="w-full flex items-center justify-between p-4 hover:bg-gray-50 dark:hover:bg-white/5 text-left">
+                        <button onClick={() => navigate('/account/faqs')} className="w-full flex items-center justify-between p-4 hover:bg-gray-50 dark:hover:bg-white/5 text-left">
                             <span className="font-medium">FAQs</span>
                             <span className="material-symbols-outlined text-gray-400">chevron_right</span>
                         </button>

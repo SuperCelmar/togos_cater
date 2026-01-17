@@ -50,16 +50,46 @@ Since we are using Supabase for the "missing pieces," those sections are marked 
 
 ## 6. Hybrid Features (Supabase + GHL)
 
-## A. Loyalty System
+## A. Loyalty System (Cashback)
 
-**Frontend Action:** User sees balance / Redeems points.  
-**Supabase:** Stores the ledger history (e.g., "+50 points for Order #123").
+**Frontend Action:** User sees balance / Redeems cashback at checkout.  
+**Supabase:** Stores the complete transaction ledger in `cashback_transactions` table.
 
+### Implementation Details
+
+**Database Schema:**
+- `cashback_transactions` table stores all earnings and redemptions
+- Balance is calculated from transaction ledger (source of truth)
+- Each transaction links to `order_id` and `invoice_id` for audit trail
+
+**Cashback Rules:**
+- Users earn 5% cashback on every completed order
+- Cashback is earned on order total (subtotal + tax + delivery fee) before any discounts
+- Cashback can be redeemed at checkout to reduce order total
+- Balance never expires
+
+**Service Layer:**
+- `src/lib/cashbackService.ts` - Handles all cashback operations
+  - `getCashbackBalance()` - Calculates balance from ledger
+  - `earnCashback()` - Records earnings transaction
+  - `redeemCashback()` - Records redemption transaction
+  - `getCashbackHistory()` - Fetches transaction history
+  - `syncCashbackToGHL()` - Syncs balance to GHL custom field
+
+**GHL Integration:**
 | GHL Connection | Details |
 | :--- | :--- |
-| **Endpoint** | `PUT /contacts/{contactId}` |
-| **Payload** | `{ "customFields": [ { "id": "loyalty_balance_field_id", "value": 450 } ] }` |
-| **Logic** | Whenever Supabase calculates a new balance, it **must** update the Custom Field in GHL so GHL Marketing emails ("You have 450 points!") match the app. |
+| **Endpoint** | `POST /contacts/update?contactId={id}` |
+| **Method** | `ghlService.updateContactCustomField()` |
+| **Payload** | `{ "customFields": [ { "id": "VITE_GHL_LOYALTY_FIELD_ID", "value": 450 } ] }` |
+| **Logic** | After every transaction (earn/redeem), balance is synced to GHL custom field so marketing emails show correct balance. |
+| **Environment Variable** | `VITE_GHL_LOYALTY_FIELD_ID` - Must be configured with GHL custom field ID |
+
+**UI Integration:**
+- Balance loads automatically on session initialization (`AppContext`)
+- Checkout screen allows applying cashback balance
+- Loyalty screen displays transaction history from ledger
+- Order success screen shows earned cashback
 
 ---
 
